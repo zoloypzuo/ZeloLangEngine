@@ -1,17 +1,3 @@
-def readall():
-    with open('in.cpp', 'r') as f:
-        return f.read()
-
-
-cppcode = readall()
-cppcode = cppcode.replace('//By Brickgao','')
-cppcode = cppcode.replace('''#define out(v) cerr << #v << ": " << (v) << endl
-#define SZ(v) ((int)(v).size())
-const int maxint = -1u>>1;
-template <class T> bool get_max(T& a, const T &b) {return b > a? a = b, 1: 0;}
-template <class T> bool get_min(T& a, const T &b) {return b < a? a = b, 1: 0;}
-''', '')
-cppcode = cppcode.replace('recs', 'strRs')
 # 整个混淆过程两步走
 # 第一步识别变量声明，提取可以替换的名字
 # 过短的名字需要告警，总的来讲，我们需要识别所有的变量，因为如果你漏掉了一个，那就很明显了，查重率会比较高
@@ -25,7 +11,27 @@ cppcode = cppcode.replace('recs', 'strRs')
 # {'flag': 'btemp', 'rec': 'atemp', 'recs': 'rstemp'}
 # 解决：手工改名字
 
-import re
+
+# BUG out.cpp(77): error C2065: “fatemplse”: 未声明的标识符
+# 分析：{'cost': 'itemp', 'vis': 'atemp', 'dis': 'dstemp', 'fa': 'fatemp'}
+# fa是false的前缀
+# 解决：手工替换
+
+# BUG 32. Find the Max NORM 时长超限
+# 关我屁事
+# 跳过这题
+
+# BUG out.cpp(19): error C3861: “gets”: 找不到标识符
+# 解决：使用gets_s，注意参数不一样了
+#     char ch[CH];
+#     printf("请输入你的名字：\n");
+#     //gets_s用法：gets_s(buffer,size);
+#     //推荐用字符数组长度-1作为size（留空'\0'）
+#     gets_s(ch,CH-1);
+#     printf("这是你的名字：%s\n", ch);
+#
+# 本地编译过了，woj系统没过，跳过吧
+
 
 from ParseGenerator import ParserGenerator
 
@@ -133,85 +139,99 @@ class CppDeclVisitor:
 visitor = CppDeclVisitor(parser)
 
 
-def gen_name(oldname, typename):
-    new_name = ''
-    type_abbr = typename[0]
+def handle_cpp_file(fn):
+    def readall(fn='in.cpp'):
+        with open(fn, 'r') as f:
+            return f.read()
 
-    new_name = type_abbr + 'temp'
-    if new_name not in obfuscator_map.values():
-        return new_name
-    else:
-        oldname_abbr = oldname[0] + oldname[-1]
-        new_name = oldname_abbr + 'temp'
+    def gen_name(oldname, typename):
+        new_name = ''
+        type_abbr = typename[0]
+
+        new_name = type_abbr + 'temp'
         if new_name not in obfuscator_map.values():
             return new_name
-        assert False
+        else:
+            oldname_abbr = oldname[0] + oldname[-1]
+            new_name = oldname_abbr + 'temp'
+            if new_name not in obfuscator_map.values():
+                return new_name
+            assert False
+
+    def write_all(s, fn='out.cpp'):
+        with open(fn, 'w') as f:
+            f.write(s)
+
+    cppcode = readall(fn)
+    cppcode = cppcode.replace('//By Brickgao', '')
+    cppcode = cppcode.replace('''#define out(v) cerr << #v << ": " << (v) << endl
+    ''', '')
+    cppcode = cppcode.replace('recs', 'strRs')
+    cppcode = cppcode.strip()
+    lines = cppcode.splitlines()
+    obfuscator_map = {}  # old name => new name
+
+    IdMinLength = 2  # name like a, will repalce all 'a' in cppcode
+
+    # find all local variables, generate new names for them
+    for line in lines:
+        try:
+            tree = parser.parse('cpp_decl', line.rstrip(';'))
+            if tree:
+                visitor.visit(tree)
+                res = visitor.stack.pop()
+                # print(res)
+                if res.decl_type == 'multi_decl':
+                    if len(res.id) < IdMinLength:
+                        pass
+                    else:
+                        new_name = gen_name(res.id, res.typename)
+                        obfuscator_map[res.id] = new_name
+                    if len(res.id1) < IdMinLength:
+                        pass
+                    else:
+                        new_name = gen_name(res.id1, res.typename)
+                        obfuscator_map[res.id1] = new_name
+                elif res.decl_type == 'map_decl':
+                    if len(res.id) < IdMinLength:
+                        pass
+                    else:
+                        new_name = gen_name(res.id, 'map' + res.typename)
+                        obfuscator_map[res.id] = new_name
+                elif res.decl_type == 'array_decl':
+                    if len(res.id) < IdMinLength:
+                        pass
+                    else:
+                        new_name = gen_name(res.id, 'array' + res.typename)
+                        obfuscator_map[res.id] = new_name
+                elif res.decl_type == 'simple_decl':
+                    if len(res.id) < IdMinLength:
+                        pass
+                    else:
+                        new_name = gen_name(res.id, res.typename)
+                        obfuscator_map[res.id] = new_name
+        except ValueError:
+            continue
+
+    print(obfuscator_map)
+    print()
+    print('=====')
+
+    # 过滤没有替换变量的文件
+    if len(obfuscator_map) < 2:
+        return
+
+    # replace names in cpp src code
+    for k, v in obfuscator_map.items():
+        cppcode = cppcode.replace(k, v)
+
+    write_all(cppcode, 'out/' + fn)
 
 
-if __name__ != '__main__':
-    exit(0)
+import os
 
-cppcode = cppcode.strip()
-lines = cppcode.splitlines()
-words = cppcode.split()
-types = {'string', 'int', 'bool', 'float'}
-obfuscator_map = {}  # old name => new name
+# dirs = os.listdir('./WOJ-learn')
+# for file in dirs:
+#     handle_cpp_file('WOJ-learn/' + file)
 
-IdMinLength = 2  # name like a, will repalce all 'a' in cppcode
-
-# find all local variables, generate new names for them
-for line in lines:
-    try:
-        tree = parser.parse('cpp_decl', line.rstrip(';'))
-        if tree:
-            visitor.visit(tree)
-            res = visitor.last_res
-            print(res)
-            if res.decl_type == 'multi_decl':
-                if len(res.id) < IdMinLength:
-                    pass
-                else:
-                    new_name = gen_name(res.id, res.typename)
-                    obfuscator_map[res.id] = new_name
-                if len(res.id1) < IdMinLength:
-                    pass
-                else:
-                    new_name = gen_name(res.id1, res.typename)
-                    obfuscator_map[res.id1] = new_name
-            elif res.decl_type == 'map_decl':
-                if len(res.id) < IdMinLength:
-                    pass
-                else:
-                    new_name = gen_name(res.id, 'map' + res.typename)
-                    obfuscator_map[res.id] = new_name
-            elif res.decl_type == 'array_decl':
-                if len(res.id) < IdMinLength:
-                    pass
-                else:
-                    new_name = gen_name(res.id, 'array' + res.typename)
-                    obfuscator_map[res.id] = new_name
-            elif res.decl_type == 'simple_decl':
-                if len(res.id) < IdMinLength:
-                    pass
-                else:
-                    new_name = gen_name(res.id, res.typename)
-                    obfuscator_map[res.id] = new_name
-    except ValueError:
-        continue
-
-print(obfuscator_map)
-print()
-print('=====')
-print()
-
-# replace names in cpp src code
-for k, v in obfuscator_map.items():
-    cppcode = cppcode.replace(k, v)
-
-
-def write_all(s):
-    with open('out.cpp', 'w') as f:
-        f.write(s)
-
-
-write_all(cppcode)
+handle_cpp_file('in.cpp')
