@@ -1,67 +1,17 @@
-cppcode = '''
-#include <iostream>
-#include <cstdio>
-#include <cstring>
-#include <cmath>
-#include <cstdlib>
-#include <algorithm>
-#include <map>
-#include <vector>
-using namespace std;
-
-map <string, int> dict;
-int mp1[100];
-int mp2[100];
-
-int main() {
-    dict.clear();
-    dict["Adam"] = 1;       mp1[1] = 0;     mp2[1] = 930;
-    dict["Seth"] = 3;       mp1[3] = 1;     mp2[3] = 920;
-    dict["Enosh"] = 4;      mp1[4] = 3;     mp2[4] = 905;
-    dict["Kenan"] = 5;      mp1[5] = 4;     mp2[5] = 910;
-    dict["Mahalalel"] = 6;  mp1[6] = 5;     mp2[6] = 895;
-    dict["Jared"] = 7;      mp1[7] = 6;     mp2[7] = 962;
-    dict["Enoch"] = 8;      mp1[8] = 7;     mp2[8] = 365;
-    dict["Methuselah"] = 9; mp1[9] = 8;     mp2[9] = 969;
-    dict["Lamech"] = 10;    mp1[10] = 9;    mp2[10] = 777;
-    dict["Noah"] = 11;      mp1[11] = 10;   mp2[11] = -1;
-    dict["Shem"] = 12;      mp1[12] = 11;   mp2[12] = -1;
-    dict["Ham"] = 13;       mp1[13] = 11;   mp2[13] = -1;
-    dict["Japheth"] = 14;   mp1[14] = 11;   mp2[14] = -1;
-    string s1, s2;
-    while(cin >> s1 >> s2) {
-        if(dict[s1] == 0 || dict[s2] == 0) {
-            cout << "No enough information" << endl << "No enough information" << endl;
-        }
-        else {
-            int n1 = dict[s1], n2 = dict[s2];
-            if(n1 == n2)
-                cout << "No" << endl;
-            else {
-                while(n2 != 0 && n2 != n1)
-                    n2 = mp1[n2];
-                if(n1 == n2)
-                    cout << "Yes" << endl;
-                else
-                    cout << "No" << endl;
-            }
-            if(mp2[dict[s1]] == -1 || mp2[dict[s2]] == -1)
-                cout << "No enough information" << endl;
-            else {
-                if(mp2[dict[s1]] > mp2[dict[s2]])
-                    cout << "Yes" << endl;
-                else
-                    cout << "No" << endl;
-            }
-        }
-    }
-    return 0;
-}
+def readall():
+    with open('in.cpp', 'r') as f:
+        return f.read()
 
 
-
-'''
-
+cppcode = readall()
+cppcode = cppcode.replace('//By Brickgao','')
+cppcode = cppcode.replace('''#define out(v) cerr << #v << ": " << (v) << endl
+#define SZ(v) ((int)(v).size())
+const int maxint = -1u>>1;
+template <class T> bool get_max(T& a, const T &b) {return b > a? a = b, 1: 0;}
+template <class T> bool get_min(T& a, const T &b) {return b < a? a = b, 1: 0;}
+''', '')
+cppcode = cppcode.replace('recs', 'strRs')
 # 整个混淆过程两步走
 # 第一步识别变量声明，提取可以替换的名字
 # 过短的名字需要告警，总的来讲，我们需要识别所有的变量，因为如果你漏掉了一个，那就很明显了，查重率会比较高
@@ -70,6 +20,11 @@ int main() {
 # 除此之外，我们需要添加无效代码来降低查重率，我估计是查重，也就是看一看你的文本和其他人的提交的文本的相似度
 #
 # 我们在前几个问题进行测试，因为难度低，系统不会查重，这里我们就开发和测试我们的混淆器
+
+# BUG 待替换的名字存在前缀关系，替换出错
+# {'flag': 'btemp', 'rec': 'atemp', 'recs': 'rstemp'}
+# 解决：手工改名字
+
 import re
 
 from ParseGenerator import ParserGenerator
@@ -85,7 +40,7 @@ multi_decl : SimpleType Id ',' Id ;  // only support 2 decl
 map_decl : 'map' '<' SimpleType ',' SimpleType '>' Id ;
 array_decl : SimpleType Id '[' Integer ']' ;
 // ====
-SimpleType : (int|float|string|bool);
+SimpleType : (int|float|string|bool|double);
 Id : [_a-zA-Z][_a-zA-Z0-9]*;
 Integer : \d+;
 '''
@@ -245,9 +200,18 @@ for line in lines:
         continue
 
 print(obfuscator_map)
+print()
+print('=====')
+print()
 
 # replace names in cpp src code
 for k, v in obfuscator_map.items():
     cppcode = cppcode.replace(k, v)
 
-print(cppcode)
+
+def write_all(s):
+    with open('out.cpp', 'w') as f:
+        f.write(s)
+
+
+write_all(cppcode)
