@@ -46,7 +46,7 @@ multi_decl : SimpleType Id ',' Id ;  // only support 2 decl
 map_decl : 'map' '<' SimpleType ',' SimpleType '>' Id ;
 array_decl : SimpleType Id '[' Integer ']' ;
 // ====
-SimpleType : (int|float|string|bool|double);
+SimpleType : (int|float|string|bool|double|char);
 Id : [_a-zA-Z][_a-zA-Z0-9]*;
 Integer : \d+;
 '''
@@ -218,8 +218,8 @@ def handle_cpp_file(fn):
     print('=====')
 
     # 过滤没有替换变量的文件
-    if len(obfuscator_map) < 2:
-        return
+    # if len(obfuscator_map) >= 2:
+    #     return
 
     # replace names in cpp src code
     for k, v in obfuscator_map.items():
