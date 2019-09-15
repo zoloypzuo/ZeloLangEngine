@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from lesson3_regex_other_languages_and_interpreters.regex_engine import match
+from regex_engine import match
 
 
 class TestRegexEngine(TestCase):
