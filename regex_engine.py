@@ -163,7 +163,7 @@ class ParserGenerator:
             raise ValueError('parse failed, text has syntax error')
 
 
-from lesson3_regex_other_languages_and_interpreters.regex_interpreter import \
+from regex_interpreter import \
     lit, alt, seq, match as match_core, star, plus, dot, eol, oneof, opt
 
 
