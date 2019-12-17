@@ -1,8 +1,8 @@
+from collections import namedtuple
 from unittest import TestCase
 
-from ZJson import plain_json, loads
 from Utils import is_namedtuple_instance
-from collections import namedtuple
+from ZJson import plain_json, loads
 
 
 class A:
@@ -11,7 +11,7 @@ class A:
         self.a = 0
 
     def __eq__(self, other):
-        return self.__class__==other.__class__ and  self.__dict__ == other.__dict__
+        return self.__class__ == other.__class__ and self.__dict__ == other.__dict__
 
 
 class B:
@@ -20,7 +20,7 @@ class B:
         self.b = A()
 
     def __eq__(self, other):
-        return self.__class__==other.__class__ and self.__dict__ == other.__dict__
+        return self.__class__ == other.__class__ and self.__dict__ == other.__dict__
 
 
 class Test(TestCase):
@@ -37,7 +37,8 @@ class Test(TestCase):
         # a = plain_json(A())
         # ---- test class objects
         # ---- ---- decodable
-        self.assertEqual(plain_json(A()), '{"__class_module__":"Test","__class_name__":"A","__class_dict__":{"a":0}}') # 这里如果你改了本文件名字会出错，理论上应该单独写一个文件（模块）测试，但是，简单化
+        self.assertEqual(plain_json(A()),
+                         '{"__class_module__":"Test","__class_name__":"A","__class_dict__":{"a":0}}')  # 这里如果你改了本文件名字会出错，理论上应该单独写一个文件（模块）测试，但是，简单化
         b = plain_json(B())
         assert plain_json(
             B()) == '{"__class_module__":"Test","__class_name__":"B","__class_dict__":' \

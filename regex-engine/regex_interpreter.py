@@ -17,6 +17,7 @@ def opt(x):
 def plus(x):
     return seq(x, star(x))
 
+
 def star(x):
     return ('star', x)
     # return opt(plus(x))  # 这是错误的写法，构造tuple时就调用死循环了
@@ -66,10 +67,10 @@ def match_set(pattern, text):
         # a* iff epsilon|aa*，a的分支必须消耗掉至少一个字符
         return ({text} |  # start可以直接返回本身
                 set(t2
-                    for t1 in match_set(x, text) if t1 != text # 匹配掉一个x，在剩余串中继续匹配pattern，
-                                                               # 这一步过滤掉返回本身的串，因为这是上一个情况已经讨论的
-                                                               # 而且这是必须的，总之，这一步必须消耗掉至少一个字符才行
-                    for t2 in match_set(pattern, t1) ))
+                    for t1 in match_set(x, text) if t1 != text  # 匹配掉一个x，在剩余串中继续匹配pattern，
+                    # 这一步过滤掉返回本身的串，因为这是上一个情况已经讨论的
+                    # 而且这是必须的，总之，这一步必须消耗掉至少一个字符才行
+                    for t2 in match_set(pattern, t1)))
     else:
         raise ValueError('pattern syntax error: %s' % pattern)
 

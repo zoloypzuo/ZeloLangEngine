@@ -76,7 +76,7 @@ def unity_doc():
     lines = lines[2:]
     parts = ['Description', 'Static Properties', 'Properties',
              'Constructors', 'Public Methods', 'Static Methods',
-             'Operators', 'Inherited Members','Messages']
+             'Operators', 'Inherited Members', 'Messages']
     parts = [i for i in parts if i + '\n' in lines]  # some doc pages do not have all parts, so ...
     part_indexes = [lines.index(part + '\n') for part in parts] + [
         len(lines)]  # note that the tail is appended and '\n' is appended
@@ -151,7 +151,7 @@ def unity_doc():
             class_content.append(new_region('Operators', join(code)))
         elif part == 'Inherited Members':
             pass
-        elif part=='Messages': 
+        elif part == 'Messages':
             '''same as public methods'''
             code = []
             for line in part_content:
@@ -169,7 +169,6 @@ def unity_doc():
 
     with open(interface_path, 'w+') as f:
         f.write(generated_code)
-
 
 
 unity_doc()

@@ -75,11 +75,11 @@ lines = [line for line in lines if not re.match('^\s*$', line)]
 def gen():
     for line in lines:
         # 根据逗号分出op和comment
-        op, comment = line.split(',',maxsplit=1)
+        op, comment = line.split(',', maxsplit=1)
         # 提取注释内容
-        comment = re.match('/\*(.*)\*/',comment).group(1)
+        comment = re.match('/\*(.*)\*/', comment).group(1)
         comment.strip()
-        yield case_stat('Opcode.'+op,comment='//'+comment)
+        yield case_stat('Opcode.' + op, comment='//' + comment)
 
 
 '''
@@ -91,9 +91,10 @@ case Opcode.OP_LOADK: {
         continue;
     }
 '''
-def case_stat(const, end='continue', comment=''):
-    return '''{comment}\ncase {const}: {{\n\t\t{end};\n\t}}\n'''.format(comment=comment,const=const,end=end)
 
+
+def case_stat(const, end='continue', comment=''):
+    return '''{comment}\ncase {const}: {{\n\t\t{end};\n\t}}\n'''.format(comment=comment, const=const, end=end)
 
 
 if __name__ == '__main__':

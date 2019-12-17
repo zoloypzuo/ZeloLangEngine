@@ -5,9 +5,10 @@
 
 """
 
+from collections import namedtuple, defaultdict, OrderedDict
 from json import dumps, load as _load, loads as _loads
 from re import sub
-from collections import namedtuple, defaultdict, OrderedDict
+
 from Utils import *
 
 JsonObject = object  # indicate 标准库 json.load 返回的对象，即标准库支持序列化与反序列化的对象；这里只是提示一下类型，不是严格的
@@ -192,6 +193,7 @@ def parse(json_text: Text) -> JsonObject:
     def parse_obj(match_obj):
         return {pair[0].strip('\"'): parse_value(pair[1])[0] for pair in
                 map(lambda x: x.split(':'), match_obj.group(2).split(','))}
+
     # 这个写成tuple会更好，因为只需要遍历pair
     grammar = {
         literal: parse_literal,
