@@ -1,0 +1,162 @@
+grammar Preprocessor;
+
+chunk : block EOF;
+
+// MSDN本来用text这个词，但是很模糊，text还包含C++代码部分，不只是宏语言
+// 这里我使用block
+// MSDN在这里描述模糊，我自己的理解是，每行至多一个宏指令语句
+// 所以换行符被算入语法，不是当作空白符跳过
+// text: Any sequence of text
+block : (stat? Newline)*;
+
+stat
+    : control_line
+	| conditional
+	;
+
+// 经过实验，#和define之间是可以有空白符的，不过这里简化一下
+control_line
+    : '#define' identifier token_string?
+    | '#undef' identifier
+    ;
+
+// 这里不会有if-else匹配错误的问题，LL算法进到block后if总是匹配正确的else
+conditional : if_part /*elif_parts?*/ else_parts? endif_line;
+
+if_part : if_line Newline block;
+
+if_line
+    : /*#if constant_expression
+	|*/ '#ifdef' identifier
+	| '#ifndef' identifier
+	;
+/*
+elif_parts : elif_line text
+	| elif_parts elif_line text
+	;
+
+elif_line : #elif constant_expression
+*/
+else_parts : else_line Newline block;
+
+else_line : '#else';
+
+endif_line : '#endif';
+
+// token_string定义被题目简化和限制，其实是字面量表达式
+/*token_string : token+;
+
+token : keyword
+	| identifier
+	| constant
+	| operator
+	| punctuator
+	;
+*/
+token_string
+    : number
+	| Bool
+	| Char  // 忽略宽字符
+	| string
+	| aggregate_exp
+	;
+
+// MSDN没有找到BNF描述，自己照着lua的table-constructor写一个
+aggregate_exp : '{' fieldlist? '}';
+
+fieldlist : token_string (',' token_string)* ','?;
+
+identifier : Name;
+
+Name : [a-zA-Z_][a-zA-Z_0-9]*;
+
+// antlr提示不支持\v
+// [ \t\v\f]+ -> skip
+Whitespace : [ \t]+ -> skip;
+
+Newline: ( '\r\n' | '\n'); // 保留空白符
+
+// 转为空格不知道antlr怎么写
+LineComment: '//' ~[\r\n]*;  // to ' '
+
+BlockComment: '/*' .*? '*/';  // to ' '
+
+
+Bool : 'true' | 'false';
+
+Char : '\'' ~'\''  '\'';
+
+// number和string先参考一下lua
+
+number
+    : INT | HEX | FLOAT
+    ;
+
+string
+    : NORMALSTRING
+    | LONGSTRING
+    ;
+
+NORMALSTRING : '"' ( EscapeSequence | ~'"' )* '"';
+
+LONGSTRING : 'L' NORMALSTRING;
+
+INT
+    : Digit+
+    ;
+
+HEX
+    : '0' [xX] HexDigit+
+    ;
+
+FLOAT
+    : Digit+ '.' Digit* ExponentPart?
+    | '.' Digit+ ExponentPart?
+    | Digit+ ExponentPart
+    ;
+
+fragment
+ExponentPart
+    : [eE] [+-]? Digit+
+    ;
+
+fragment
+HexExponentPart
+    : [pP] [+-]? Digit+
+    ;
+
+fragment
+EscapeSequence
+    : '\\' [abfnrtvz"'\\]
+    | '\\' '\r'? '\n'
+    | DecimalEscape
+    | HexEscape
+    | UtfEscape
+    ;
+
+fragment
+DecimalEscape
+    : '\\' Digit
+    | '\\' Digit Digit
+    | '\\' [0-2] Digit Digit
+    ;
+
+fragment
+HexEscape
+    : '\\' 'x' HexDigit HexDigit
+    ;
+
+fragment
+UtfEscape
+    : '\\' 'u{' HexDigit+ '}'
+    ;
+
+fragment
+Digit
+    : [0-9]
+    ;
+
+fragment
+HexDigit
+    : [0-9a-fA-F]
+    ;
