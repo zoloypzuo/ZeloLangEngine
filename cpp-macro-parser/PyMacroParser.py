@@ -30,3 +30,12 @@ class PyMacroParser:
 
     def preDefine(self, s):
         pass
+
+
+class Lexer:
+    def __init__(self, chunk: str):
+        self.chunk = chunk  # source code
+        self.line = 0  # current line number
+        self.nextToken = ""
+        self.nextTokenKind = 0
+        self.nextTokenLine = 0

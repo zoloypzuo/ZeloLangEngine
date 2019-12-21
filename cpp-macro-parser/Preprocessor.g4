@@ -7,7 +7,10 @@ chunk : block EOF;
 // MSDN在这里描述模糊，我自己的理解是，每行至多一个宏指令语句
 // 所以换行符被算入语法，不是当作空白符跳过
 // text: Any sequence of text
-block : (stat? Newline)*;
+//
+// 首先源文本可以是空的
+// 然后最后一行可以没有换行
+block : (stat? Newline)* stat?;
 
 stat
     : control_line
@@ -77,9 +80,9 @@ Whitespace : [ \t]+ -> skip;
 Newline: ( '\r\n' | '\n'); // 保留空白符
 
 // 转为空格不知道antlr怎么写
-LineComment: '//' ~[\r\n]*;  // to ' '
+LineComment: '//' ~[\r\n]* -> skip;  // to ' '
 
-BlockComment: '/*' .*? '*/';  // to ' '
+BlockComment: '/*' .*? '*/' -> skip;  // to ' '
 
 
 Bool : 'true' | 'false';
