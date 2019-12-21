@@ -19,8 +19,8 @@ stat
 
 // 经过实验，#和define之间是可以有空白符的，不过这里简化一下
 control_line
-    : '#define' identifier token_string?
-    | '#undef' identifier
+    : '#define' Identifier token_string?
+    | '#undef' Identifier
     ;
 
 // 这里不会有if-else匹配错误的问题，LL算法进到block后if总是匹配正确的else
@@ -30,8 +30,8 @@ if_part : if_line Newline block;
 
 if_line
     : /*#if constant_expression
-	|*/ '#ifdef' identifier
-	| '#ifndef' identifier
+	|*/ '#ifdef' Identifier
+	| '#ifndef' Identifier
 	;
 /*
 elif_parts : elif_line text
@@ -57,9 +57,9 @@ token : keyword
 	;
 */
 token_string
-    : number
-	| Bool
+    : Bool
 	| Char  // 忽略宽字符
+	| number
 	| string
 	| aggregate_exp
 	;
@@ -68,10 +68,6 @@ token_string
 aggregate_exp : '{' fieldlist? '}';
 
 fieldlist : token_string (',' token_string)* ','?;
-
-identifier : Name;
-
-Name : [a-zA-Z_][a-zA-Z_0-9]*;
 
 // antlr提示不支持\v
 // [ \t\v\f]+ -> skip
@@ -112,20 +108,16 @@ HEX
     : '0' [xX] HexDigit+
     ;
 
+// 这里加了f后缀
 FLOAT
-    : Digit+ '.' Digit* ExponentPart?
-    | '.' Digit+ ExponentPart?
-    | Digit+ ExponentPart
+    : Digit+ '.' Digit* ExponentPart? 'f'?
+    | '.' Digit+ ExponentPart? 'f'?
+    | Digit+ ExponentPart 'f'?
     ;
 
 fragment
 ExponentPart
     : [eE] [+-]? Digit+
-    ;
-
-fragment
-HexExponentPart
-    : [pP] [+-]? Digit+
     ;
 
 fragment
@@ -163,3 +155,6 @@ fragment
 HexDigit
     : [0-9a-fA-F]
     ;
+
+// 印象笔记 《true被识别为标识符》
+Identifier :  [a-zA-Z_][a-zA-Z_0-9]*;
