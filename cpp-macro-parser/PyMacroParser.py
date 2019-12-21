@@ -19,6 +19,19 @@ from enum import Enum, auto
 
 # endregion
 
+# region common
+def readall(path):
+    with open(path, 'r') as f:
+        return f.read()
+
+
+def writeall(path, text):
+    with open(path, 'w') as f:
+        f.write(text)
+
+
+# endregion
+
 # noinspection PyPep8Naming,PyShadowingNames
 class PyMacroParser:
     def load(self, f):
@@ -370,17 +383,18 @@ case 'u': // \\u{XXX}
 # Lexer('a').error("asd")
 # TODO 这里应该有很多地方没有check eof就读了，再想想
 
-# l = Lexer('#define a')
-l = Lexer('#define a "asda" \'c\'')
-while True:
-    a = l.next_token
-    print(a)
-    _, k, _ = a
-    if k == TokenKind.Eof:
-        break
-# ((1, 1), <TokenKind.Sep_Pound: 8>, '')
-# ((1, 2), <TokenKind.Kw_Define: 16>, '')
-# ((1, 9), <TokenKind.Identifier: 3>, 'a')
-# ((1, 11), <TokenKind.String: 7>, 'asda')
-# ((1, 18), <TokenKind.Char: 6>, 'c')
-# ((1, 21), <TokenKind.Eof: 1>, '')
+
+def t(s):
+    l = Lexer(s)
+    while True:
+        a = l.next_token
+        print(a)
+        _, k, _ = a
+        if k == TokenKind.Eof:
+            break
+
+
+def tf(f):
+    t(readall(f))
+
+tf('test_data/skip.cpp')
