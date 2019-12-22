@@ -40,6 +40,7 @@ elif_parts : elif_line text
 
 elif_line : #elif constant_expression
 */
+
 else_parts : else_line Newline block;
 
 else_line : '#else';
@@ -85,7 +86,7 @@ Bool : 'true' | 'false';
 
 Char : '\'' ~'\''  '\'';
 
-// number和string先参考一下lua
+// number和string先参考一下lua，和MSDN标准是不一样的
 
 number
     : INT | HEX | FLOAT
