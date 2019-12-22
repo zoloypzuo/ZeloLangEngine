@@ -70,6 +70,8 @@ aggregate_exp : '{' fieldlist? '}';
 
 fieldlist : token_string (',' token_string)* ','?;
 
+/* lexer */
+
 // antlr提示不支持\v
 // [ \t\v\f]+ -> skip
 Whitespace : [ \t]+ -> skip;
@@ -80,7 +82,6 @@ Newline: ( '\r\n' | '\n'); // 保留空白符
 LineComment: '//' ~[\r\n]* -> skip;  // to ' '
 
 BlockComment: '/*' .*? '*/' -> skip;  // to ' '
-
 
 Bool : 'true' | 'false';
 
