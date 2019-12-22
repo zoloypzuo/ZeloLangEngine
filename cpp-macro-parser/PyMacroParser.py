@@ -229,6 +229,11 @@ case ':':
         else:
             if self.newline():
                 return Token(TokenKind.Newline)
+            if self.test('L\"'):
+                self.advance(1)
+                # TODO 宽字符串如何处理
+                s = self.scan_string()
+                return Token(TokenKind.String, s)
             if c == '.' or is_digit(c):
                 # TODO
                 pass
@@ -396,5 +401,6 @@ def t(s):
 
 def tf(f):
     t(readall(f))
+
 
 tf('test_data/skip.cpp')
