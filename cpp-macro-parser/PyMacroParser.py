@@ -167,13 +167,13 @@ class Lexer(ILexer):
 
         def skip():
             while self.not_eof:
-                if self.test_str('//'):
+                if self.test_prefix('//'):
                     self.advance(2)
                     while self.not_eof and not is_newline(self.char):
                         self.advance(1)
-                elif self.test_str('/*'):
+                elif self.test_prefix('/*'):
                     self.advance(2)
-                    while not self.test_str('*/'):
+                    while not self.test_prefix('*/'):
                         # 注释会包含换行
                         # 另一种方法是解析出来，然后数一下有多少换行
                         if not self.newline():
@@ -188,10 +188,12 @@ class Lexer(ILexer):
                 else:
                     break
 
-        def Token(kind: TokenKind, lexeme=None):
+        # 返回token
+        # value尽早在lexer就解析出值，字符串的转义也处理好
+        def res_token(kind: TokenKind, value=None):
             column = self.last_column
             self.last_column = self.column
-            return (self.line, column), kind, lexeme
+            return (self.line, column), kind, value
 
         # 尝试使用cache
         if self.cached_lookahead:
@@ -202,7 +204,7 @@ class Lexer(ILexer):
         # 被跳过的内容不输出token，但是column要更新
         self.last_column = self.column
         if self.eof:
-            return Token(TokenKind.Eof)
+            return res_token(TokenKind.Eof)
 
         '''
 接下来的大switch
@@ -228,16 +230,16 @@ case ':':
 
         if c == '#':
             self.advance(1)
-            return Token(TokenKind.Sep_Pound)
+            return res_token(TokenKind.Sep_Pound)
         elif c == '{':
             self.advance(1)
-            return Token(TokenKind.Sep_LCurly)
+            return res_token(TokenKind.Sep_LCurly)
         elif c == '}':
             self.advance(1)
-            return Token(TokenKind.Sep_RCurly)
+            return res_token(TokenKind.Sep_RCurly)
         elif c == ',':
             self.advance(1)
-            return Token(TokenKind.Sep_Comma)
+            return res_token(TokenKind.Sep_Comma)
         elif c == '\'':
             self.advance(1)
             # TODO 没有宽字符，但是转义没有处理
@@ -249,41 +251,41 @@ case ':':
                 self.error("unfinished char")
             else:
                 self.advance(1)
-                return Token(TokenKind.Char, c)
+                return res_token(TokenKind.Char, c)
         elif c == '\"':
             s = self.scan_string()
-            return Token(TokenKind.String, s)
+            return res_token(TokenKind.String, s)
         else:
             if self.newline():
-                return Token(TokenKind.Newline)
-            if self.test_str('L\"'):
+                return res_token(TokenKind.Newline)
+            if self.test_prefix('L\"'):
                 self.advance(1)
                 # TODO 宽字符串如何处理
                 s = self.scan_string()
-                return Token(TokenKind.String, s)
+                return res_token(TokenKind.String, s)
             if c == '.' or is_digit(c):
                 t, v = self.scan_number()
                 if t == NumberType.Decimal or t == NumberType.Hexadecimal or t == NumberType.Octal:
-                    return Token(TokenKind.Int, v)
+                    return res_token(TokenKind.Int, v)
                 elif t == NumberType.Float:
-                    return Token(TokenKind.Float, v)
+                    return res_token(TokenKind.Float, v)
                 else:
-                    raise Exception("unreachable")
+                    self.error("unreachable")
             if c == '_' or is_letter(c):
                 identifier = self.scan_identifier()
                 assert identifier.isidentifier()
                 # 关键字是这样处理的：先用id来lex，然后优先判定关键字
                 res = keywords.get(identifier)
                 if res:
-                    return Token(res)
+                    return res_token(res)
                 else:
-                    return Token(TokenKind.Identifier, identifier)
+                    return res_token(TokenKind.Identifier, identifier)
         self.error("unexpected symbol near %s" % c)
 
     # 返回是否吃进换行符，如果是，更新行号和列号
     # 返回False的情况下，newline对当前字符什么都不做，交给调用者处理
     def newline(self):
-        if self.test_str('\r\n') or self.test_str('\n\r'):
+        if self.test_prefix('\r\n') or self.test_prefix('\n\r'):
             self.advance(2)
             self.line += 1
             self.column = 0
@@ -305,39 +307,43 @@ case ':':
     def not_eof(self):
         return self.pointer < len(self.chunk)
 
-    # test类函数会检查eof，如果因为遇到eof，也是返回false
+    # test类函数会检查eof，如果因为遇到eof而失败，也是返回false
     # 下面的test类函数不必调用test-base，避免小调用，但是应该参考这个
     def test_base(self, predicate):
         return self.not_eof and predicate()
 
+    # test是test类函数
     def try_advance_base(self, test, n):
         res = test()
         if res:
             self.advance(n)
         return res
 
-    def test_char(self, c):
+    def test_char_is(self, c):
         return self.not_eof and self.char == c
 
     # 测试chunk接下来是否是s，类似于re.match
-    def test_str(self, s: str):
+    def test_prefix(self, s: str):
         return self.chunk.startswith(s, self.pointer)
 
-    def test_charset(self, charset):
+    def test_char_in_charset(self, charset):
         return self.not_eof and self.char in charset
 
-    def test_predicate(self, predicate):
+    def test_char_predicate(self, predicate):
         return self.not_eof and predicate(self.char)
 
-    def try_advance_char(self, c):
-        return self.try_advance_base(lambda: self.test_char(c), 1)
+    def test_char_is_digit(self):
+        return self.not_eof and is_digit(self.char)
 
-    def try_advance_str(self, s: str):
-        return self.try_advance_base(lambda: self.test_str(s), len(s))
+    def try_advance_char_is(self, c):
+        return self.try_advance_base(lambda: self.test_char_is(c), 1)
+
+    def try_advance_prefix(self, s: str):
+        return self.try_advance_base(lambda: self.test_prefix(s), len(s))
 
     # 自己决定charset是str还是set
-    def try_advance_charset(self, charset):
-        return self.try_advance_base(lambda: self.test_charset(charset), 1)
+    def try_advance_char_in_charset(self, charset):
+        return self.try_advance_base(lambda: self.test_char_in_charset(charset), 1)
 
     # 指针前进
     # 不要叫next，避免和python-generator的next冲突
@@ -369,34 +375,72 @@ case ':':
         def lexeme():
             return self.chunk[pointer: self.pointer]
 
+        def res_float():
+            return NumberType.Float, float(lexeme())
+
         # 转为python都是int，所以后缀信息没用
         # 而且实测int函数不能解析后缀，所以要先解析再advance
         def abandon_int_suffix():
-            self.try_advance_str('ll')
-            self.try_advance_str('LL')
-            self.try_advance_charset(set('lLuU'))
+            self.try_advance_prefix('ll')
+            self.try_advance_prefix('LL')
+            self.try_advance_char_in_charset('lLuU')
 
+        def abandon_float_suffix():
+            self.try_advance_char_in_charset('fF')
+
+        # 可以看到，手工人肉lex浮点数的ifelse复杂度已经超出了控制
+        # 必须抽象可靠的模式，否则无法做错误处理
+        # 写多了就发现模式了，而且这个和parser是一致的
+        # 一个语法成分，要返回是否有这个成分，给调用者断言
+        # 然后要处理内部发生的错误
+        # 这个显然可以进一步抽象，从语法生成代码
+
+        # exponent-part:
+        #     e signopt digit-sequence
+        #     E signopt digit-sequence
         def exponent_part():
-            if self.not_eof and self.try_advance_charset('eE'):
-                self.try_advance_charset('+-')
-                while not self.not_eof and is_digit(c):
-                    self.advance(1)
+            res = self.try_advance_char_in_charset('eE')
+            if res:
+                self.try_advance_char_in_charset('+-')
+                if not digit_sequence():
+                    self.error('float miss digit-sequence')
+            return res
+
+        # digit-sequence:
+        #     digit
+        #     digit-sequence digit
+        def digit_sequence():
+            res = self.test_char_is_digit()
+            while self.try_advance_base(self.test_char_is_digit, 1):
+                pass
+            return res
 
         c = self.char
         self.advance(1)
-        if c == '.':  # float
-            pass
+        if self.try_advance_char_is('.'):  # float
+            # . digit-sequence exponent-part? float-suffix?
+            if not digit_sequence():
+                self.error('float miss digit-sequence')
+            exponent_part()
+            res = res_float()
+            abandon_float_suffix()
+            return res
         elif c == '0':  # oct or hex
-            c = self.char
-            if self.try_advance_charset('xX'):  # hex
-                if not self.test_predicate(is_hex_digit):
-                    raise LexerException("unfinished hex int")
-                while self.test_predicate(is_hex_digit):
+            if self.try_advance_char_in_charset('xX'):  # hex
+                # hexadecimal-constant:
+                #     hexadecimal-prefix hexadecimal-digit
+                #     hexadecimal-constant hexadecimal-digit
+                if not self.test_char_predicate(is_hex_digit):
+                    self.error("unfinished hex int")
+                while self.test_char_predicate(is_hex_digit):
                     self.advance(1)
                 value = int(lexeme(), 16)
                 abandon_int_suffix()
                 return NumberType.Hexadecimal, value
             else:  # oct
+                # octal-constant:
+                #     0
+                #     octal-constant octal-digit
                 while self.not_eof and '0' <= self.char <= '7':
                     self.advance(1)
                 value = int(lexeme(), 8)
@@ -405,21 +449,32 @@ case ':':
         else:  # int or float
             assert '1' <= c <= '9'
             # 不管是int还是float，首先解析出整数
-            while self.not_eof and is_digit(self.char):
-                self.advance(1)
-            else:  # while else
-                if self.not_eof and self.test_charset('.eE'):  # float
-                    if self.not_eof and self.try_advance_char('.'):
-                        while not self.not_eof and is_digit(c):
-                            self.advance(1)
+            digit_sequence()
+            if self.test_char_in_charset('.eE'):  # float
+                # floating-point-constant:
+                #     fractional-constant exponent-part? floating-suffix?
+                #     digit-sequence exponent-part floating-suffix?
+                #
+                # fractional-constant:
+                #     digit-sequence? . digit-sequence  # ?的情况上面处理过了
+                #     digit-sequence .
+                if self.try_advance_char_is('.'):
+                    digit_sequence()
                     exponent_part()
-                    value = float(lexeme())
-                    self.try_advance_charset('fF')
-                    return NumberType.Float, value
-                else:  # int
-                    value = int(lexeme())
-                    abandon_int_suffix()
-                    return NumberType.Decimal, value
+                    res = res_float()
+                    abandon_float_suffix()
+                    return res
+                else:
+                    assert self.test_char_in_charset('eE')
+                    if not exponent_part():
+                        self.error('float miss exponent-part')
+                    res = res_float()
+                    abandon_float_suffix()
+                    return res
+            else:  # int
+                value = int(lexeme())
+                abandon_int_suffix()
+                return NumberType.Decimal, value
 
     # 扫描，完成转移，返回没有两端引号的文本内容
     def scan_string(self):
@@ -504,16 +559,16 @@ case ':':
 
 
 # Lexer('a').error("asd")
-# TODO 这里应该有很多地方没有check eof就读了，再想想
 
 
 def t(s):
     lexer = Lexer(s)
     while True:
-        a = lexer.next_token
-        print(a)
-        _, k, _ = a
-        if k == TokenKind.Eof:
+        pos, kind, value = lexer.next_token
+        print(pos,kind,value)
+        # if kind == TokenKind.Float:
+        #     print(pos, value)
+        if kind == TokenKind.Eof:
             break
 
 
@@ -521,5 +576,5 @@ def tf(f):
     t(readall(f))
 
 
-tf('test_data/lexer/skip.cpp')
+# tf('test_data/lexer/skip.cpp')
 tf('test_data/define.cpp')
