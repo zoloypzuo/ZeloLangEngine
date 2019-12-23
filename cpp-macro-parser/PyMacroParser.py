@@ -653,6 +653,24 @@ def compile(chunk: str, chunkname='') -> Prototype:
     pass
 
 
+block_ctx = namedtuple('block_ctx', ['stat_star'])
+define_stat_ctx = namedtuple('define_stat_ctx', ['identifier', 'token_string_optional'])
+undef_stat_ctx = namedtuple('undef_stat_ctx', ['identifier'])
+bool_exp_ctx = namedtuple('bool_exp_ctx', ['value'])
+char_exp_ctx = namedtuple('char_exp_ctx', ['value'])
+int_exp_ctx = namedtuple('int_exp_ctx', ['value'])
+float_exp_ctx = namedtuple('float_exp_ctx', ['value'])
+# 这里不想细分了，直接加个bool区别，还没有想清楚L怎么处理
+string_exp_ctx = namedtuple('string_exp_ctx', ['is_long_str', 'value'])
+aggregate_exp_ctx = namedtuple('aggregate_exp_ctx', ['fieldlist_optional'])
+conditional_stat_ctx = namedtuple('conditional_stat_ctx',
+                                  ['if_part', 'else_part_optional'])
+if_part_ctx = namedtuple('if_part_ctx', ['if_line', 'block'])
+else_part_optional_ctx = namedtuple('else_part_optional_ctx', ['block'])
+ifdef_ctx = namedtuple('ifdef_ctx', [])
+ifndef_ctx = namedtuple('ifndef_ctx', [])
+
+
 # 返回AST，我们使用lisp
 # TODO lookahead(k)
 def parse(chunk) -> tuple:
@@ -712,7 +730,17 @@ def parse(chunk) -> tuple:
     def pos():
         return token_steam.pos
 
-    block_ctx = namedtuple('block_ctx', ['stat_star'])
+    def test_lookahead_kind_sequence(kind_sequence):
+        i = 0
+        _len = len(kind_sequence)
+        while i < _len:
+            if not test_lookahead_kind(kind_sequence[i], i):
+                return False
+        return True
+
+    # star返回一个可空的tuple
+    # plus返回非空的tuple
+    # optional返回None或者ctx
 
     def block() -> block_ctx:
         stat_star = []
@@ -724,6 +752,8 @@ def parse(chunk) -> tuple:
                     return block_ctx(stat_star=tuple(stat_star))
                 else:
                     assert_lookahead_kind_and_read(TokenKind.Newline)
+            else:
+                assert_lookahead_kind_and_read(TokenKind.Newline)
 
     def stat():
         assert_lookahead_kind(TokenKind.Sep_Pound)
@@ -736,15 +766,12 @@ def parse(chunk) -> tuple:
             assert k == TokenKind.Kw_IfDef or k == TokenKind.Kw_UnDef
             return conditional_stat()
 
-    define_stat_ctx = namedtuple('define_stat_ctx', [])
-
     def define_stat():
         assert_lookahead_kind_and_read(TokenKind.Sep_Pound)
         assert_lookahead_kind_and_read(TokenKind.Kw_Define)
-        identifier = next_identifier()
-        # TODO try token_string
-
-    undef_stat_ctx = namedtuple('undef_stat_ctx', ['identifier'])
+        return define_stat_ctx(
+            identifier=next_identifier(),
+            token_string_optional=token_string_optional())
 
     def undef_stat():
         assert_lookahead_kind_and_read(TokenKind.Sep_Pound)
@@ -752,11 +779,87 @@ def parse(chunk) -> tuple:
         identifier = next_identifier()
         return undef_stat_ctx(identifier=identifier)
 
-    conditional_stat_ctx = namedtuple('conditional_stat_ctx',[])
+    # 这个难一点
+    def token_string_optional():
+        if test_lookahead_kind_not_in({TokenKind.Kw_True, TokenKind.Kw_False,
+                                       TokenKind.Char,
+                                       TokenKind.Int, TokenKind.Float,
+                                       TokenKind.String,
+                                       TokenKind.Sep_LCurly}):
+            return None
+        k = lookahead().kind
+        if k == TokenKind.Kw_True or k == TokenKind.Kw_False:
+            return bool_exp()
+        elif k == TokenKind.Char:
+            return char_exp()
+        elif k == TokenKind.Int:
+            return int_exp()
+        elif k == TokenKind.Float:
+            return float_exp()
+        elif k == TokenKind.String:
+            return string_exp()
+        else:
+            assert k == TokenKind.Sep_LCurly
+            return aggregate_exp()
+
+    def bool_exp():
+        k = next_token().kind
+        return bool_exp_ctx(value=True if k == TokenKind.Kw_True else False)
+
+    def char_exp():
+        return char_exp_ctx(value=next_token().value)
+
+    def int_exp():
+        return int_exp_ctx(value=next_token().value)
+
+    def float_exp():
+        return float_exp_ctx(value=next_token().value)
+
+    def string_exp():
+        # TODO 我的string是一起的，要处理一下L字符串
+        return string_exp_ctx(is_long_str=False, value=next_token().value)
+
+    def aggregate_exp():
+        next_token()
+        fieldlist = fieldlist_optional()
+        assert_lookahead_kind_and_read(TokenKind.Sep_RCurly)
+        return aggregate_exp_ctx(fieldlist_optional=fieldlist)
+
+    def fieldlist_optional():
+        pass
 
     def conditional_stat():
-        assert_lookahead_kind_and_read(TokenKind.Sep_Pound)
+        return conditional_stat_ctx(
+            if_part=if_part(),
+            else_part_optional=else_part_optional()
+        )
 
+    def if_part():
+        assert_lookahead_kind(TokenKind.Sep_Pound)
+        k = lookahead(2).kind
+        if_line = ifdef() if k == TokenKind.Kw_IfDef else ifndef()
+        assert_lookahead_kind_and_read(TokenKind.Newline)
+        return if_part_ctx(
+            if_line=if_line,
+            block=block())
+
+    def else_part_optional():
+        if test_lookahead_kind_sequence((TokenKind.Sep_Pound, TokenKind.Kw_Else)):
+            next_token()
+            next_token()
+            assert_lookahead_kind_and_read(TokenKind.Newline)
+            return else_part_optional_ctx(block=block())
+        return None
+
+    def ifdef():
+        assert_lookahead_kind_and_read(TokenKind.Sep_Pound)
+        assert_lookahead_kind_and_read(TokenKind.Kw_IfDef)
+        return ifdef_ctx()
+
+    def ifndef():
+        assert_lookahead_kind_and_read(TokenKind.Sep_Pound)
+        assert_lookahead_kind_and_read(TokenKind.Kw_IfNDef)
+        return ifndef_ctx()
 
     return block(), assert_lookahead_kind_and_read(TokenKind.Eof)
 
@@ -772,6 +875,10 @@ def test_log():
     global test_id
     print('---- start test %s' % test_id)
     test_id += 1
+
+
+test_skip = 'test_data/lexer/skip.cpp'
+test_define = 'test_data/define.cpp'
 
 
 # region test lexer
@@ -791,8 +898,8 @@ def tlf(f):
 
 
 print('==== test lexer start')
-tlf('test_data/lexer/skip.cpp')
-tlf('test_data/define.cpp')
+tlf(test_skip)
+tlf(test_define)
 print('==== test lexer end')
 
 
@@ -805,8 +912,82 @@ def tp(s):
     pprint(parse(s), width=1)
 
 
+def tpf(f):
+    tp(readall(f))
+
+
 print('==== test parsr start')
 tp('')
 tp('#undef a')
+tp('#define a')
+tp('#define a 1')
+tpf(test_skip)
+tpf(test_define)
 print('==== test parser end')
+
+# region final test
+
+exit(0)
+
+a1 = PyMacroParser()
+a2 = PyMacroParser()
+a1.load("test_data/a.cpp")
+filename = "test_data/b.cpp"
+a1.dump(filename)  # 没有预定义宏的情况下，dump cpp
+a2.load(filename)
+a2_dict = a2.dumpDict()
+a1.preDefine("MC1;MC2")  # 指定预定义宏，再dump
+a1_dict = a1.dumpDict()
+a1.dump("test_data/c.cpp")
+
+# 则b.cpp输出
+b = '''
+#define data1 1.0 //浮点精度信息消失，统一转成了double 正式输出没有这个注释
+#define data2 2
+#define data3 false
+#define data4 "this is a data"
+#define data5 68 //注意：这里本是'D' 转换后成为整型十进制表示，正式输出没有这个注释
+#define data6 {1, 6}
+#define MCTEST //空宏，但是被定义了, 正式输出没有这个注释
+'''
+
+# a2.dump字典
+d2 = {
+    "data1": 1.0,
+    "data2": 2,
+    "data3": False,
+    "data4": "this is a data",
+    "data5": 68,
+    "data6": (1, 6),
+    "MCTEST": None,  # 空宏，但被定义了。 正式输出没有这个注释
+}
+
+# a1.dump字典：
+d1 = {
+    "data1": 32,
+    "data2": 2.5,  # 2.5f的float标记消失，正式输出没有这个注释
+    "data3": u"this is a data",  # 宽字符串成为 unicode 正式输出没有这个注释
+    "data4": True,
+    "data5": 97,  # 注意 这里是'a'转int。 正式输出没有这个注释
+    "data6": ((2.0, "abc"), (1.5, "def"), (5.6, "7.2")),  # python数据对象与源数据类型按规则对应即可， 正式输出没有这个注释
+    "MC1": None,  # 预定义的空宏，而MC2最终被undef了，所以不存在MC2
+    "MCTEST": None,
+}
+
+# c.cpp 输出
+c = '''
+#define data1 32 //16进制表示消失。 正式输出没有这个注释
+#define data2 2.5
+#define data3 L"this is a data" //unicode 转回宽字符 正式输出没有这个注释
+#define data4 true
+#define data5 97 //'a', 正式输出没有这个注释
+#define data6 {{2.0, "abc"}, {1.5, "def"}, {5.6, "7.2"}} #tuple转回聚合， 正式输出没有这个注释
+#define MC1
+#define MCTEST
+'''
+
+# assert a1_dict == d1
+# assert a2_dict == d2
+
+# endregion
 # endregion
