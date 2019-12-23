@@ -663,12 +663,13 @@ float_exp_ctx = namedtuple('float_exp_ctx', ['value'])
 # 这里不想细分了，直接加个bool区别，还没有想清楚L怎么处理
 string_exp_ctx = namedtuple('string_exp_ctx', ['is_long_str', 'value'])
 aggregate_exp_ctx = namedtuple('aggregate_exp_ctx', ['fieldlist_optional'])
+fieldlist_optional_ctx = namedtuple('fieldlist_optional_ctx', ['token_string_star'])
 conditional_stat_ctx = namedtuple('conditional_stat_ctx',
                                   ['if_part', 'else_part_optional'])
 if_part_ctx = namedtuple('if_part_ctx', ['if_line', 'block'])
 else_part_optional_ctx = namedtuple('else_part_optional_ctx', ['block'])
-ifdef_ctx = namedtuple('ifdef_ctx', [])
-ifndef_ctx = namedtuple('ifndef_ctx', [])
+ifdef_ctx = namedtuple('ifdef_ctx', ['identifier'])
+ifndef_ctx = namedtuple('ifndef_ctx', ['identifier'])
 
 
 # 返回AST，我们使用lisp
@@ -763,7 +764,7 @@ def parse(chunk) -> tuple:
         elif k == TokenKind.Kw_UnDef:
             return undef_stat()
         else:
-            assert k == TokenKind.Kw_IfDef or k == TokenKind.Kw_UnDef
+            assert k == TokenKind.Kw_IfDef or k == TokenKind.Kw_UnDef, pos()
             return conditional_stat()
 
     def define_stat():
@@ -823,10 +824,26 @@ def parse(chunk) -> tuple:
         next_token()
         fieldlist = fieldlist_optional()
         assert_lookahead_kind_and_read(TokenKind.Sep_RCurly)
-        return aggregate_exp_ctx(fieldlist_optional=fieldlist)
+        return aggregate_exp_ctx(fieldlist_optional=tuple(fieldlist))
 
+    # fieldlist : token_string (',' token_string)* ','?;
     def fieldlist_optional():
-        pass
+        token_string_star = []
+        i = token_string_optional()
+        if i is None:
+            return None
+        token_string_star.append(i)
+        while True:
+            if test_lookahead_kind_sequence([TokenKind.Sep_Comma, TokenKind.Sep_RCurly]):
+                break
+            elif test_lookahead_kind(TokenKind.Sep_RCurly):
+                break
+            else:
+                assert_lookahead_kind_and_read(TokenKind.Sep_Comma)
+                t = token_string_optional()
+                assert t
+                token_string_star.append(t)
+        return fieldlist_optional_ctx(token_string_star=token_string_star)
 
     def conditional_stat():
         return conditional_stat_ctx(
@@ -854,12 +871,12 @@ def parse(chunk) -> tuple:
     def ifdef():
         assert_lookahead_kind_and_read(TokenKind.Sep_Pound)
         assert_lookahead_kind_and_read(TokenKind.Kw_IfDef)
-        return ifdef_ctx()
+        return ifdef_ctx(identifier=next_identifier())
 
     def ifndef():
         assert_lookahead_kind_and_read(TokenKind.Sep_Pound)
         assert_lookahead_kind_and_read(TokenKind.Kw_IfNDef)
-        return ifndef_ctx()
+        return ifndef_ctx(identifier=next_identifier())
 
     return block(), assert_lookahead_kind_and_read(TokenKind.Eof)
 
@@ -879,6 +896,7 @@ def test_log():
 
 test_skip = 'test_data/lexer/skip.cpp'
 test_define = 'test_data/define.cpp'
+test_a = 'test_data/a.cpp'
 
 
 # region test lexer
@@ -923,25 +941,26 @@ tp('#define a')
 tp('#define a 1')
 tpf(test_skip)
 tpf(test_define)
+tpf(test_a)
 print('==== test parser end')
 
 # region final test
 
 exit(0)
 
-a1 = PyMacroParser()
-a2 = PyMacroParser()
-a1.load("test_data/a.cpp")
+test_ai = PyMacroParser()
+test_a2 = PyMacroParser()
+test_ai.load("test_data/a.cpp")
 filename = "test_data/b.cpp"
-a1.dump(filename)  # 没有预定义宏的情况下，dump cpp
-a2.load(filename)
-a2_dict = a2.dumpDict()
-a1.preDefine("MC1;MC2")  # 指定预定义宏，再dump
-a1_dict = a1.dumpDict()
-a1.dump("test_data/c.cpp")
+test_ai.dump(filename)  # 没有预定义宏的情况下，dump cpp
+test_a2.load(filename)
+a2_dict = test_a2.dumpDict()
+test_ai.preDefine("MC1;MC2")  # 指定预定义宏，再dump
+a1_dict = test_ai.dumpDict()
+test_ai.dump("test_data/c.cpp")
 
 # 则b.cpp输出
-b = '''
+test_b = '''
 #define data1 1.0 //浮点精度信息消失，统一转成了double 正式输出没有这个注释
 #define data2 2
 #define data3 false
@@ -975,7 +994,7 @@ d1 = {
 }
 
 # c.cpp 输出
-c = '''
+test_c = '''
 #define data1 32 //16进制表示消失。 正式输出没有这个注释
 #define data2 2.5
 #define data3 L"this is a data" //unicode 转回宽字符 正式输出没有这个注释
