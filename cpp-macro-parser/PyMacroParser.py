@@ -12,6 +12,7 @@
 # copy = None
 # deepcopy = None
 
+from collections import namedtuple
 from enum import Enum, auto
 from pprint import pprint
 
@@ -19,6 +20,8 @@ from pprint import pprint
 # endregion
 
 # region common
+
+
 def readall(path):
     with open(path, 'r', encoding='utf8') as f:
         return f.read()
@@ -118,6 +121,18 @@ def is_hex_digit(c):
     return '0' <= c <= '9' or 'A' <= c <= "F" or 'a' <= c <= 'f'
 
 
+class Token:
+    def __init__(self, pos, kind, value):
+        self.pos: tuple = pos
+        self.kind: TokenKind = kind
+        self.value = value
+
+    def __str__(self):
+        return (self.pos, self.kind, self.value).__str__()
+
+    __repr__ = __str__
+
+
 # noinspection PyPropertyDefinition
 class ILexer:
     @property
@@ -129,7 +144,7 @@ class ILexer:
         pass
 
     @property
-    def next_token(self) -> tuple:
+    def next_token(self) -> Token:
         pass
 
 
@@ -142,23 +157,27 @@ class ILexer:
 # NextToken和LookAhead在未计算所需Token时计算并缓存Token，从缓存中取出Token
 class ITokenStream:
     @property
-    def eos(self):
+    def eos(self) -> bool:
         pass
 
     @property
-    def not_eos(self):
+    def not_eos(self) -> bool:
         pass
 
     # 前瞻，不前进流指针
-    def lookahead(self, n=1):
+    def lookahead(self, n=1) -> Token:
         pass
 
-    def lookahead_array(self, n):
-        pass
+    # def lookahead_array(self, n) -> tuple:
+    #     pass
 
     # 返回下一个token，前进一格流指针
     @property
-    def next_token(self):
+    def next_token(self) -> Token:
+        pass
+
+    @property
+    def pos(self) -> tuple:
         pass
 
 
@@ -180,7 +199,7 @@ class TokenStream(ITokenStream):
 
     # 前瞻，不前进流指针
     def lookahead(self, n=1):
-        self.cache_if_need(1)
+        self.cache_if_need(n)
         return self.buffer[self.pointer + n]
 
     def lookahead_array(self, n):
@@ -196,13 +215,13 @@ class TokenStream(ITokenStream):
         return self.buffer[self.pointer]
 
     def cache_if_need(self, n):
-        l = len(self.buffer)
+        _len = len(self.buffer)
         p = self.pointer
 
         # 初始值 0 <= -1 + 1
-        if l <= p + n:
+        if _len <= p + n:
             # 初始值 1 = -1+1-0+1
-            n_to_cache = p + n - l + 1
+            n_to_cache = p + n - _len + 1
             i = 0
             while i < n_to_cache:
                 t = self.lexer.next_token
@@ -213,21 +232,9 @@ class TokenStream(ITokenStream):
                 self.buffer.append(t)
                 i += 1
 
-    def add(self, item):
-        self.buffer.append(item)
-
-    def try_get(self, i):
-        _i = self.pointer + i
-        if _i >= len(self.buffer):
-            return False, None
-        else:
-            return self.buffer[_i]
-
-    def __getitem__(self, item: int):
-        return self.buffer[self.pointer + item]
-
-    def advance(self, n):
-        self.pointer += n
+    @property
+    def pos(self) -> tuple:
+        return self.buffer[self.pointer + 1].pos
 
 
 class Lexer(ILexer):
@@ -239,7 +246,7 @@ class Lexer(ILexer):
         self.pointer = 0
 
     @property
-    def next_token(self) -> tuple:
+    def next_token(self) -> Token:
 
         def skip():
             while self.not_eof:
@@ -269,7 +276,7 @@ class Lexer(ILexer):
         def res_token(kind: TokenKind, value=None):
             column = self.last_column
             self.last_column = self.column
-            return (self.line, column), kind, value
+            return Token((self.line, column), kind, value)
 
         skip()
         # 被跳过的内容不输出token，但是column要更新
@@ -654,96 +661,128 @@ def parse(chunk) -> tuple:
     def error(msg):
         raise ParserException(msg)
 
-    def test_lookahead_kind(kind: TokenKind):
-        _, _kind, _ = token_steam.lookahead()
-        return kind == _kind
+    def test_lookahead_kind(kind: TokenKind, n=1):
+        return lookahead(n).kind == kind
 
     def next_token():
         return token_steam.next_token
 
-    def lookahead():
-        return token_steam.lookahead
-
-    def lookahead_kind():
-        _, _kind, _ = token_steam.lookahead
-        return _kind
+    def lookahead(n=1):
+        return token_steam.lookahead(n)
 
     # assert grammar function
     # 每个语法成分对应一个函数
     # 函数返回一个bool和ast
     # bool代表是否有这个语法成分，交给调用者用于判断
-    def assert_has_NT(g_function):
-        b, ast = g_function()
-        if not b:
-            error("miss %s" % g_function.__name__)
+    # def assert_has_NT(g_function):
+    #     b, ast = g_function()
+    #     if not b:
+    #         error("miss %s" % g_function.__name__)
+    #     else:
+    #         return ast
+
+    def assert_lookahead_kind(kind):
+        t = lookahead()
+        if kind != t.kind:
+            error("expect Token %s, get actual %s" % (kind, t.kind))
+        return t
+
+    def assert_lookahead_kind_and_read(kind):
+        t = lookahead()
+        if kind != t.kind:
+            error("expect Token %s, get actual %s" % (kind, t.kind))
         else:
-            return ast
+            next_token()
+            return t
 
-    def assert_has_T(kind):
-        res = lexer.lookahead
-        _, _kind, _ = res
-        if kind != _kind:
-            error("expect Token %s, get actual %s" % (kind, _kind))
-        return res
+    def test_kind_and_read(kind):
+        t = lookahead()
+        return t.kind == kind
 
-    def star(*g_functions):
-        pass
+    def test_lookahead_kind_in(kind_set: set):
+        return lookahead().kind in kind_set
 
-    def block():
-        ctx = []
+    def test_lookahead_kind_not_in(kind_set: set):
+        return not lookahead().kind in kind_set
+
+    # 验证下一Token是标识符并返回标识符的名字
+    def next_identifier():
+        return assert_lookahead_kind_and_read(TokenKind.Identifier).value
+
+    def pos():
+        return token_steam.pos
+
+    block_ctx = namedtuple('block_ctx', ['stat_star'])
+
+    def block() -> block_ctx:
+        stat_star = []
         while not test_lookahead_kind(TokenKind.Eof):
-            res, ast = stat()
-            if res:
-                ctx.append(ast)
-                k = lookahead_kind()
+            if test_lookahead_kind(TokenKind.Sep_Pound):
+                stat_star.append(stat())
+                k = lookahead().kind
                 if k == TokenKind.Eof:
-                    return True, tuple(ctx)
+                    return block_ctx(stat_star=tuple(stat_star))
                 else:
-                    assert_has_T(TokenKind.Newline)
-        return True, tuple(ctx)
+                    assert_lookahead_kind_and_read(TokenKind.Newline)
 
     def stat():
-        b = test_lookahead_kind(TokenKind.Sep_Pound)
-        if not b:
-            return False, tuple()
-        next_token()
-        k = lookahead_kind()
+        assert_lookahead_kind(TokenKind.Sep_Pound)
+        k = lookahead(2).kind
         if k == TokenKind.Kw_Define:
-            return True, ('stat', assert_has_NT(define_stat))
+            return define_stat()
         elif k == TokenKind.Kw_UnDef:
-            return True, ('stat', assert_has_NT(undef_stat))
+            return undef_stat()
         else:
             assert k == TokenKind.Kw_IfDef or k == TokenKind.Kw_UnDef
-            return True, ('stat', assert_has_NT(conditional))
+            return conditional_stat()
+
+    define_stat_ctx = namedtuple('define_stat_ctx', [])
 
     def define_stat():
-        pass
+        assert_lookahead_kind_and_read(TokenKind.Sep_Pound)
+        assert_lookahead_kind_and_read(TokenKind.Kw_Define)
+        identifier = next_identifier()
+        # TODO try token_string
+
+    undef_stat_ctx = namedtuple('undef_stat_ctx', ['identifier'])
 
     def undef_stat():
-        pass
+        assert_lookahead_kind_and_read(TokenKind.Sep_Pound)
+        assert_lookahead_kind_and_read(TokenKind.Kw_UnDef)
+        identifier = next_identifier()
+        return undef_stat_ctx(identifier=identifier)
 
-    def conditional():
-        pass
+    conditional_stat_ctx = namedtuple('conditional_stat_ctx',[])
 
-    return 'chunk', assert_has_NT(block), assert_has_T(TokenKind.Eof)
+    def conditional_stat():
+        assert_lookahead_kind_and_read(TokenKind.Sep_Pound)
+
+
+    return block(), assert_lookahead_kind_and_read(TokenKind.Eof)
 
 
 # endregion
 
 # test
 
+test_id = 0
+
+
+def test_log():
+    global test_id
+    print('---- start test %s' % test_id)
+    test_id += 1
+
+
 # region test lexer
 def tl(s):
+    test_log()
     lexer = Lexer(s)
     token_steam: ITokenStream = TokenStream(lexer)
     while token_steam.not_eos:
         t = token_steam.next_token
         print(t)
-        pos, kind, value = t
-        # print(pos, kind, value)
-        # if kind == TokenKind.Float:
-        #     print(pos, value)
-        if kind == TokenKind.Eof:
+        if t.kind == TokenKind.Eof:
             break
 
 
@@ -762,11 +801,12 @@ print('==== test lexer end')
 # region test parser
 
 def tp(s):
-    pprint(parse(s), width=2)
+    test_log()
+    pprint(parse(s), width=1)
 
 
 print('==== test parsr start')
 tp('')
-tp('#define a')
+tp('#undef a')
 print('==== test parser end')
 # endregion
