@@ -19,21 +19,20 @@ chunk : block EOF;
 block : (stat? Newline)* stat?;
 
 
-// 经过实验，#和define之间是可以有空白符的，不过这里简化一下
-
+// 经过实验，#和define之间是可以有空白符
 stat
-    : '#define' Identifier token_string?  # define_stat
-    | '#undef' Identifier  # undef_stat
+    : '#' 'define' Identifier token_string?  # define_stat
+    | '#' 'undef' Identifier  # undef_stat
     // 这里不会有if-else匹配错误的问题，LL算法进到block后if总是匹配正确的else
-	| if_part /*elif_parts?*/ else_parts? endif_line  # conditional_stat
+	| if_part /*elif_parts?*/ else_part? endif_line  # conditional_stat
 	;
 
 if_part : if_line Newline block;
 
 if_line
     : /*#if constant_expression
-	|*/ '#ifdef' Identifier
-	| '#ifndef' Identifier
+	|*/ '#' 'ifdef' Identifier
+	| '#' 'ifndef' Identifier
 	;
 /*
 elif_parts : elif_line text
@@ -43,11 +42,11 @@ elif_parts : elif_line text
 elif_line : #elif constant_expression
 */
 
-else_parts : else_line Newline block;
+else_part : else_line Newline block;
 
-else_line : '#else';
+else_line : '#' 'else';
 
-endif_line : '#endif';
+endif_line : '#' 'endif';
 
 // token_string定义被题目简化和限制，其实是字面量表达式
 /*token_string : token+;
