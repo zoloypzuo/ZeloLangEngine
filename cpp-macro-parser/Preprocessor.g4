@@ -22,13 +22,11 @@ block : (stat? Newline)* stat?;
 // 经过实验，#和define之间是可以有空白符的，不过这里简化一下
 
 stat
-    : '#define' Identifier token_string?
-    | '#undef' Identifier
-	| conditional
+    : '#define' Identifier token_string?  # define_stat
+    | '#undef' Identifier  # undef_stat
+    // 这里不会有if-else匹配错误的问题，LL算法进到block后if总是匹配正确的else
+	| if_part /*elif_parts?*/ else_parts? endif_line  # conditional_stat
 	;
-
-// 这里不会有if-else匹配错误的问题，LL算法进到block后if总是匹配正确的else
-conditional : if_part /*elif_parts?*/ else_parts? endif_line;
 
 if_part : if_line Newline block;
 
