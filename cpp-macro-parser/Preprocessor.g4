@@ -10,18 +10,22 @@ chunk : block EOF;
 //
 // 首先源文本可以是空的
 // 然后最后一行可以没有换行
+//
+// antlr能解析，我不能
+// stat Newline
+// Newline
+// stat
+// 最后一行可以没有空格，但是空格是分开stat之间的
 block : (stat? Newline)* stat?;
 
-stat
-    : control_line
-	| conditional
-	;
 
 // 经过实验，#和define之间是可以有空白符的，不过这里简化一下
-control_line
+
+stat
     : '#define' Identifier token_string?
     | '#undef' Identifier
-    ;
+	| conditional
+	;
 
 // 这里不会有if-else匹配错误的问题，LL算法进到block后if总是匹配正确的else
 conditional : if_part /*elif_parts?*/ else_parts? endif_line;
