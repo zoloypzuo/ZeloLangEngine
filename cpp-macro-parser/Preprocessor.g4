@@ -59,15 +59,13 @@ token : keyword
 	;
 */
 token_string
-    : Bool
-	| Char  // 忽略宽字符
-	| number
-	| string
-	| aggregate_exp
+    : Bool  # bool_exp
+	| Char  # char_exp  // 忽略宽字符
+	| INT  # int_exp
+	| FLOAT  # float_exp
+	| string  # string_exp
+	| '{' fieldlist? '}'  # aggregate_exp  // MSDN没有找到BNF描述，自己照着lua的table-constructor写一个
 	;
-
-// MSDN没有找到BNF描述，自己照着lua的table-constructor写一个
-aggregate_exp : '{' fieldlist? '}';
 
 fieldlist : token_string (',' token_string)* ','?;
 
