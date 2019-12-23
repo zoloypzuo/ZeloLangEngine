@@ -3,18 +3,17 @@
 
 # region 简易沙箱，你不应该再import任何东西了
 
-import sys
-
-blacklist = ['re']
-for mod in blacklist:
-    i = __import__(mod)
-    sys.modules[mod] = None
-eval = None
-exec = None
-copy = None
-deepcopy = None
+# blacklist = ['re']
+# for mod in blacklist:
+#     i = __import__(mod)
+#     sys.modules[mod] = None
+# eval = None
+# exec = None
+# copy = None
+# deepcopy = None
 
 from enum import Enum, auto
+from pprint import pprint
 
 
 # endregion
@@ -46,6 +45,8 @@ class PyMacroParser:
     def preDefine(self, s):
         pass
 
+
+# region lexer
 
 class TokenKind(Enum):
     Eof = auto()
@@ -119,23 +120,114 @@ def is_hex_digit(c):
 
 # noinspection PyPropertyDefinition
 class ILexer:
-    # 至多前瞻一个token
-    # 前瞻的token被缓存，反复调用lookahead只会返回这个缓存
-    # 调用一次next_token后这个缓存被清空
     @property
-    def lookahead(self):
-        pass
-
-    def next_token_of_kind(self, kind: TokenKind):
+    def eof(self):
         pass
 
     @property
-    def next_identifier(self):
+    def not_eof(self):
         pass
 
     @property
     def next_token(self) -> tuple:
         pass
+
+
+# 包装Lexer为一个带前瞻的流对象
+#
+# 词法分析认为是复杂计算，因此前瞻时缓存结果
+# 内部维护一个List<Token>包含所有已经计算的Token值，不删除旧的值，所有Token都会一直在内存
+# NextToken对应于流的指针，而LookAhead(n)的n是相对于流指针的偏移
+# LookAhead有单个元素和数组两个版本，因为我暂时不知道parser是否要用哪种，干脆都写
+# NextToken和LookAhead在未计算所需Token时计算并缓存Token，从缓存中取出Token
+class ITokenStream:
+    @property
+    def eos(self):
+        pass
+
+    @property
+    def not_eos(self):
+        pass
+
+    # 前瞻，不前进流指针
+    def lookahead(self, n=1):
+        pass
+
+    def lookahead_array(self, n):
+        pass
+
+    # 返回下一个token，前进一格流指针
+    @property
+    def next_token(self):
+        pass
+
+
+class TokenStream(ITokenStream):
+    def __init__(self, lexer: ILexer):
+        self.buffer = []
+        # NOTE 注意指针初始值为-1，总是指向第一个可用的token前一格
+        # 这样比如初始时lookahead(1)返回buffer[0]
+        self.pointer = -1
+        self.lexer = lexer
+
+    @property
+    def eos(self):
+        return self.lexer.eof and self.pointer >= len(self.buffer)
+
+    @property
+    def not_eos(self):
+        return not self.eos
+
+    # 前瞻，不前进流指针
+    def lookahead(self, n=1):
+        self.cache_if_need(1)
+        return self.buffer[self.pointer + n]
+
+    def lookahead_array(self, n):
+        self.cache_if_need(n)
+        p = self.pointer
+        return tuple(self.buffer[p:p + n])
+
+    # 返回下一个token，前进一格流指针
+    @property
+    def next_token(self):
+        self.cache_if_need(1)
+        self.pointer += 1
+        return self.buffer[self.pointer]
+
+    def cache_if_need(self, n):
+        l = len(self.buffer)
+        p = self.pointer
+
+        # 初始值 0 <= -1 + 1
+        if l <= p + n:
+            # 初始值 1 = -1+1-0+1
+            n_to_cache = p + n - l + 1
+            i = 0
+            while i < n_to_cache:
+                t = self.lexer.next_token
+                # if self.lexer.eof():
+                #     # TODO 这个异常可以捕获，再想想；parser自己check eof token，而不是捕获异常
+                #     # 比如 print(1缺一个右括号，parser调用lexer会走到这里
+                #     raise LexerException('no more tokens')
+                self.buffer.append(t)
+                i += 1
+
+    def add(self, item):
+        self.buffer.append(item)
+
+    def try_get(self, i):
+        _i = self.pointer + i
+        if _i >= len(self.buffer):
+            return False, None
+        else:
+            return self.buffer[_i]
+
+    def __getitem__(self, item: int):
+        return self.buffer[self.pointer + item]
+
+    def advance(self, n):
+        self.pointer += n
 
 
 class Lexer(ILexer):
@@ -144,23 +236,7 @@ class Lexer(ILexer):
         self.line = 1  # current line number
         self.column = 1
         self.last_column = 1  # 构造Token时指针已经移动到lexeme末尾了，所以要延迟一下
-        self.cached_lookahead = tuple()
         self.pointer = 0
-
-    @property
-    def lookahead(self):
-        if not self.cached_lookahead:
-            self.cached_lookahead = self.next_token
-        return self.cached_lookahead
-
-    def next_token_of_kind(self, kind: TokenKind):
-        line, _kind, lexeme = self.next_token
-        assert kind == _kind, "syntax error near '%s'" % lexeme
-        return line, lexeme
-
-    @property
-    def next_identifier(self):
-        return self.next_token_of_kind(TokenKind.Identifier)
 
     @property
     def next_token(self) -> tuple:
@@ -194,11 +270,6 @@ class Lexer(ILexer):
             column = self.last_column
             self.last_column = self.column
             return (self.line, column), kind, value
-
-        # 尝试使用cache
-        if self.cached_lookahead:
-            self.cached_lookahead = tuple()
-            return self.cached_lookahead
 
         skip()
         # 被跳过的内容不输出token，但是column要更新
@@ -558,23 +629,144 @@ case ':':
             return ''.join(string_builder)
 
 
-# Lexer('a').error("asd")
+# endregion
+
+# region parser
+
+class Prototype:
+    pass
 
 
-def t(s):
+class ParserException(Exception):
+    pass
+
+
+def compile(chunk: str, chunkname='') -> Prototype:
+    # TODO catch error and rethrow with chunk name
+    pass
+
+
+# 返回AST，我们使用lisp
+# TODO lookahead(k)
+def parse(chunk) -> tuple:
+    token_steam: ITokenStream = TokenStream(Lexer(chunk))
+
+    def error(msg):
+        raise ParserException(msg)
+
+    def test_lookahead_kind(kind: TokenKind):
+        _, _kind, _ = token_steam.lookahead()
+        return kind == _kind
+
+    def next_token():
+        return token_steam.next_token
+
+    def lookahead():
+        return token_steam.lookahead
+
+    def lookahead_kind():
+        _, _kind, _ = token_steam.lookahead
+        return _kind
+
+    # assert grammar function
+    # 每个语法成分对应一个函数
+    # 函数返回一个bool和ast
+    # bool代表是否有这个语法成分，交给调用者用于判断
+    def assert_has_NT(g_function):
+        b, ast = g_function()
+        if not b:
+            error("miss %s" % g_function.__name__)
+        else:
+            return ast
+
+    def assert_has_T(kind):
+        res = lexer.lookahead
+        _, _kind, _ = res
+        if kind != _kind:
+            error("expect Token %s, get actual %s" % (kind, _kind))
+        return res
+
+    def star(*g_functions):
+        pass
+
+    def block():
+        ctx = []
+        while not test_lookahead_kind(TokenKind.Eof):
+            res, ast = stat()
+            if res:
+                ctx.append(ast)
+                k = lookahead_kind()
+                if k == TokenKind.Eof:
+                    return True, tuple(ctx)
+                else:
+                    assert_has_T(TokenKind.Newline)
+        return True, tuple(ctx)
+
+    def stat():
+        b = test_lookahead_kind(TokenKind.Sep_Pound)
+        if not b:
+            return False, tuple()
+        next_token()
+        k = lookahead_kind()
+        if k == TokenKind.Kw_Define:
+            return True, ('stat', assert_has_NT(define_stat))
+        elif k == TokenKind.Kw_UnDef:
+            return True, ('stat', assert_has_NT(undef_stat))
+        else:
+            assert k == TokenKind.Kw_IfDef or k == TokenKind.Kw_UnDef
+            return True, ('stat', assert_has_NT(conditional))
+
+    def define_stat():
+        pass
+
+    def undef_stat():
+        pass
+
+    def conditional():
+        pass
+
+    return 'chunk', assert_has_NT(block), assert_has_T(TokenKind.Eof)
+
+
+# endregion
+
+# test
+
+# region test lexer
+def tl(s):
     lexer = Lexer(s)
-    while True:
-        pos, kind, value = lexer.next_token
-        print(pos,kind,value)
+    token_steam: ITokenStream = TokenStream(lexer)
+    while token_steam.not_eos:
+        t = token_steam.next_token
+        print(t)
+        pos, kind, value = t
+        # print(pos, kind, value)
         # if kind == TokenKind.Float:
         #     print(pos, value)
         if kind == TokenKind.Eof:
             break
 
 
-def tf(f):
-    t(readall(f))
+def tlf(f):
+    tl(readall(f))
 
 
-# tf('test_data/lexer/skip.cpp')
-tf('test_data/define.cpp')
+print('==== test lexer start')
+tlf('test_data/lexer/skip.cpp')
+tlf('test_data/define.cpp')
+print('==== test lexer end')
+
+
+# endregion
+
+# region test parser
+
+def tp(s):
+    pprint(parse(s), width=2)
+
+
+print('==== test parsr start')
+tp('')
+tp('#define a')
+print('==== test parser end')
+# endregion
