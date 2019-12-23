@@ -31,8 +31,8 @@ if_part : if_line Newline block;
 
 if_line
     : /*#if constant_expression
-	|*/ '#' 'ifdef' Identifier
-	| '#' 'ifndef' Identifier
+	|*/ '#' 'ifdef' Identifier  # ifdef
+	| '#' 'ifndef' Identifier  # ifndef
 	;
 /*
 elif_parts : elif_line text
