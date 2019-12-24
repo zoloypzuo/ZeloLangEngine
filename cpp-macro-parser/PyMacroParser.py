@@ -329,7 +329,8 @@ case ':':
                 self.error("unfinished char")
             else:
                 self.advance(1)
-                return res_token(TokenKind.Char, c)
+                # 题目要求char转int
+                return res_token(TokenKind.Char, ord(c))
         elif c == '\"':
             s = self.scan_string()
             return res_token(TokenKind.String, s)
