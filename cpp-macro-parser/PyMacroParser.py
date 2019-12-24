@@ -36,17 +36,26 @@ def writeall(path, text):
 
 # noinspection PyPep8Naming,PyShadowingNames
 class PyMacroParser:
+    def __init__(self):
+        self.proto = None
+        self.predefined_names = []
+
     def load(self, f):
-        pass
+        self.proto = Prototype(parse(readall(f)))
 
     def dump(self, filename):
-        pass
+        writeall(filename, dump(self.dumpDict()))
 
     def dumpDict(self):
-        pass
+        return execute(self.proto, self.predefined_names)
 
     def preDefine(self, s):
-        pass
+        # 这种字符串格式的输入，讲道理应该做更多检查的，但是不让用re
+        if s == '':
+            return
+        names = s.split(';')
+        # 题目要求，每次调用自动清理掉之前的预定义宏序列
+        self.predefined_names = names
 
 
 # region lexer
@@ -914,8 +923,11 @@ class IVirtualMachine:
 #
 # visit*函数，语句没有返回值，表达式有返回值
 # C#会很烦写一个tag-union，但是python就很轻松
-def execute(proto):
+def execute(proto, predefined_names=None):
     defined_variables = {}
+    if predefined_names:
+        for name in predefined_names:
+            defined_variables[name] = None
     visit_functions = {}
 
     def error(msg):
@@ -988,6 +1000,35 @@ def execute(proto):
     block_, eof_ = proto.ast
     visit_block_ctx(block_)
     return defined_variables
+
+
+# endregion
+
+# region dumper
+
+# 返回字符串
+def dump(defined_variables):
+    def py2cpp(o):
+        if isinstance(o, bool):
+            return 'true' if o else 'false'
+        # NOTE BUG bool is int in python
+        elif isinstance(o, int):
+            return o.__str__()
+        elif isinstance(o, float):
+            return o.__str__()
+        elif isinstance(o, str):
+            return '"%s"' % o
+        else:
+            assert isinstance(o, tuple)
+            return "{%s}" % ', '.join(py2cpp(i) for i in o)
+
+    def define(name, value=None):
+        return '#define %s %s\n' % (
+            name, py2cpp(value) if value is not None else '')
+
+    return ''.join(
+        define(name, value)
+        for name, value in defined_variables.items())
 
 
 # endregion
@@ -1073,7 +1114,6 @@ tvf(test_a)
 
 # region final test
 
-exit(0)
 
 test_a1 = PyMacroParser()
 test_a2 = PyMacroParser()
@@ -1132,8 +1172,8 @@ test_c = '''
 #define MCTEST
 '''
 
-# assert a1_dict == d1
-# assert a2_dict == d2
+assert a1_dict == d1
+assert a2_dict == d2
 
 # endregion
 # endregion
