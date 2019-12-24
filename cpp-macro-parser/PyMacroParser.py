@@ -3,7 +3,6 @@
 
 
 from collections import namedtuple
-from pprint import pprint
 
 
 # noinspection PyPep8Naming,PyShadowingNames
@@ -22,7 +21,6 @@ class PyMacroParser:
         return execute(self.proto, self.predefined_names)
 
     def preDefine(self, s):
-        # 这种字符串格式的输入，讲道理应该做更多检查的，但是不让用re
         if s == '':
             return
         names = s.split(';')
@@ -30,12 +28,15 @@ class PyMacroParser:
         self.predefined_names = names
 
 
-# region common
+# region common util
 
 
 def readall(path):
+    # try:
     with open(path, 'r') as f:
         return f.read()
+    # except IOError as e:
+    #     raise e
 
 
 def writeall(path, text):
@@ -43,10 +44,7 @@ def writeall(path, text):
         f.write(text)
 
 
-# endregion
-
-# region lexer
-
+# python2没有enum
 enum_id = -1
 
 
@@ -56,6 +54,12 @@ def auto():
     return enum_id
 
 
+# endregion
+
+# region lexer
+
+
+# noinspection PyClassHasNoInit
 class TokenKind:
     Eof = auto()
     Newline = auto()
@@ -91,6 +95,7 @@ keywords = {
 }
 
 
+# noinspection PyClassHasNoInit
 class NumberType:
     Decimal = auto()
     Octal = auto()
@@ -231,8 +236,6 @@ class Lexer:
                 else:
                     break
 
-        # 返回token
-        # value尽早在lexer就解析出值，字符串的转义也处理好
         def res_token(kind, value=None):
             column = self.last_column
             self.last_column = self.column
@@ -243,26 +246,6 @@ class Lexer:
         self.last_column = self.column
         if self.eof:
             return res_token(TokenKind.Eof)
-
-        '''
-接下来的大switch
-有的token靠第一个字符就能区别出来，很简单
-
-第二简单的是比如<和<=
-例子：
-case ':':
-    if self.test("::") {
-        self.next(2)
-        return self.line, TOKEN_SEP_LABEL, "::"
-    } else {
-        self.next(1)
-        return self.line, TOKEN_SEP_COLON, ":"
-    }
-
-比较难的是.
-.在编程语言中一般用于访问成员，但是，浮点数可以直接用点开头
-这需要判断是否是数字，然后把数字解析扔到default里去解析        
-        '''
 
         c = self.char
 
@@ -378,12 +361,10 @@ case ':':
     def try_advance_prefix(self, s):
         return self.try_advance_base(lambda: self.test_prefix(s), len(s))
 
-    # 自己决定charset是str还是set
     def try_advance_char_in_charset(self, charset):
         return self.try_advance_base(lambda: self.test_char_in_charset(charset), 1)
 
     # 指针前进
-    # 不要叫next，避免和python-generator的next冲突
     def advance(self, n):
         self.column += n
         self.pointer += n
@@ -403,9 +384,6 @@ case ':':
             self.advance(1)
         return self.chunk[pointer:self.pointer]
 
-    # HARD 想想办法逃课把。。。
-    # 首字母无法判断是int还是float
-    # 返回Token
     def scan_number(self):
         pointer = self.pointer
 
@@ -447,10 +425,10 @@ case ':':
         #     digit
         #     digit-sequence digit
         def digit_sequence():
-            res = self.test_char_is_digit()
+            b = self.test_char_is_digit()
             while self.try_advance_base(self.test_char_is_digit, 1):
                 pass
-            return res
+            return b
 
         c = self.char
         self.advance(1)
@@ -478,7 +456,7 @@ case ':':
                 # octal-constant:
                 #     0
                 #     octal-constant octal-digit
-                while self.not_eof and is_octal_digit(self.char):
+                while self.test_char_predicate(is_octal_digit):
                     self.advance(1)
                 value = int(lexeme(), 8)
                 abandon_int_suffix()
@@ -516,7 +494,7 @@ case ':':
     # 扫描，完成转移，返回没有两端引号的文本内容
     def scan_string(self):
         self.advance(1)  # first char is checked
-        string_builder = []  # 没有找到StringBuilder
+        string_builder = []
         while self.not_eof and self.char != '\"':
             string_builder.append(self.scan_char())
         if self.eof or self.char != '\"':
@@ -605,7 +583,6 @@ ifndef_ctx = namedtuple('ifndef_ctx', ['identifier'])
 
 
 # 返回AST，我们使用lisp
-# [x] lookahead(k)
 def parse(chunk):
     token_steam = TokenStream(Lexer(chunk))
 
@@ -620,17 +597,6 @@ def parse(chunk):
 
     def lookahead(n=1):
         return token_steam.lookahead(n)
-
-    # assert grammar function
-    # 每个语法成分对应一个函数
-    # 函数返回一个bool和ast
-    # bool代表是否有这个语法成分，交给调用者用于判断
-    # def assert_has_NT(g_function):
-    #     b, ast = g_function()
-    #     if not b:
-    #         error("miss %s" % g_function.__name__)
-    #     else:
-    #         return ast
 
     def assert_lookahead_kind(kind):
         t = lookahead()
@@ -836,12 +802,6 @@ class Prototype:
         self.ast = ast
 
 
-# 时间紧张，不编译
-# def compile(chunk: str, chunkname='') -> Prototype:
-#     # TODO catch error and rethrow with chunk name
-#     pass
-
-
 # endregion
 
 # region vm
@@ -851,9 +811,6 @@ class RuntimeException(Exception):
 
 
 # 时间紧张。。直接执行ast
-#
-# visit*函数，语句没有返回值，表达式有返回值
-# C#会很烦写一个tag-union，但是python就很轻松
 def execute(proto, predefined_names=None):
     defined_variables = {}
     if predefined_names:
@@ -877,15 +834,15 @@ def execute(proto, predefined_names=None):
         visit(ctx)
 
     def visit_define_stat_ctx(ctx):
-        name = ctx.identifier
+        id_ = ctx.identifier
         token_string_optional = ctx.token_string_optional
-        defined_variables[name] = visit(token_string_optional) if token_string_optional else None
+        defined_variables[id_] = visit(token_string_optional) if token_string_optional else None
 
     def visit_undef_stat_ctx(ctx):
-        name = ctx.identifier
+        id_ = ctx.identifier
         # [Different ways to Remove a key from Dictionary in Python | del vs dict.pop() – thispointer.com](
         # https://thispointer.com/different-ways-to-remove-a-key-from-dictionary-in-python/)
-        defined_variables.pop(name, None)
+        defined_variables.pop(id_, None)
 
     def visit_bool_exp_ctx(ctx):
         return ctx.value
@@ -949,7 +906,7 @@ def dump(defined_variables):
             return o.__str__()
         elif isinstance(o, str):
             return '"%s"' % o
-        # [x]
+        # [x] 宽字符串
         elif isinstance(o, unicode):
             return 'L"%s' % o
         else:
@@ -964,150 +921,4 @@ def dump(defined_variables):
         define(name, value)
         for name, value in defined_variables.items())
 
-
-# endregion
-
-# region test
-
-test_id = 0
-
-
-def test_log():
-    global test_id
-    print('---- start test %s' % test_id)
-    test_id += 1
-
-
-test_skip = 'test_data/lexer/skip.cpp'
-test_define = 'test_data/define.cpp'
-test_a = 'test_data/a.cpp'
-
-
-# region test lexer
-def tl(s):
-    test_log()
-    lexer = Lexer(s)
-    token_steam = TokenStream(lexer)
-    while token_steam.not_eos:
-        t = token_steam.next_token
-        print(t)
-        if t.kind == TokenKind.Eof:
-            break
-
-
-def tlf(f):
-    tl(readall(f))
-
-
-print('==== test lexer start')
-tlf(test_skip)
-tlf(test_define)
-print('==== test lexer end')
-
-
-# endregion
-
-# region test parser
-
-def tp(s):
-    test_log()
-    pprint(parse(s), width=1)
-
-
-def tpf(f):
-    tp(readall(f))
-
-
-print('==== test parsr start')
-tpf(test_a)
-
-tp('')
-tp('#undef a')
-tp('#define a')
-tp('#define a 1')
-tpf(test_skip)
-tpf(test_define)
-print('test a')
-tpf(test_a)
-print('==== test parser end')
-
-
-# endregion
-
-# region test vm
-
-def tvf(f):
-    test_log()
-    proto = Prototype(parse(readall(f)))
-    pprint(execute(proto))
-
-
-tvf(test_a)
-
-# endregion
-
-# region final test
-
-
-test_a1 = PyMacroParser()
-test_a2 = PyMacroParser()
-test_a1.load("test_data/a.cpp")
-filename = "test_data/b.cpp"
-test_a1.dump(filename)  # 没有预定义宏的情况下，dump cpp
-test_a2.load(filename)
-a2_dict = test_a2.dumpDict()
-test_a1.preDefine("MC1;MC2")  # 指定预定义宏，再dump
-a1_dict = test_a1.dumpDict()
-test_a1.dump("test_data/c.cpp")
-
-# 则b.cpp输出
-test_b = '''
-#define data1 1.0 //浮点精度信息消失，统一转成了double 正式输出没有这个注释
-#define data2 2
-#define data3 false
-#define data4 "this is a data"
-#define data5 68 //注意：这里本是'D' 转换后成为整型十进制表示，正式输出没有这个注释
-#define data6 {1, 6}
-#define MCTEST //空宏，但是被定义了, 正式输出没有这个注释
-'''
-
-# a2.dump字典
-d2 = {
-    "data1": 1.0,
-    "data2": 2,
-    "data3": False,
-    "data4": "this is a data",
-    "data5": 68,
-    "data6": (1, 6),
-    "MCTEST": None,  # 空宏，但被定义了。 正式输出没有这个注释
-}
-
-# a1.dump字典：
-d1 = {
-    "data1": 32,
-    "data2": 2.5,  # 2.5f的float标记消失，正式输出没有这个注释
-    "data3": u"this is a data",  # 宽字符串成为 unicode 正式输出没有这个注释
-    "data4": True,
-    "data5": 97,  # 注意 这里是'a'转int。 正式输出没有这个注释
-    "data6": ((2.0, "abc"), (1.5, "def"), (5.6, "7.2")),  # python数据对象与源数据类型按规则对应即可， 正式输出没有这个注释
-    "MC1": None,  # 预定义的空宏，而MC2最终被undef了，所以不存在MC2
-    "MCTEST": None,
-}
-
-# c.cpp 输出
-test_c = '''
-#define data1 32 //16进制表示消失。 正式输出没有这个注释
-#define data2 2.5
-#define data3 L"this is a data" //unicode 转回宽字符 正式输出没有这个注释
-#define data4 true
-#define data5 97 //'a', 正式输出没有这个注释
-#define data6 {{2.0, "abc"}, {1.5, "def"}, {5.6, "7.2"}} #tuple转回聚合， 正式输出没有这个注释
-#define MC1
-#define MCTEST
-'''
-
-assert a1_dict == d1
-assert a2_dict == d2
-
-# endregion
 # endregion
