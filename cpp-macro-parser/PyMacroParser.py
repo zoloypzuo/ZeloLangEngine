@@ -640,16 +640,8 @@ case ':':
 
 # region parser
 
-class Prototype:
-    pass
-
 
 class ParserException(Exception):
-    pass
-
-
-def compile(chunk: str, chunkname='') -> Prototype:
-    # TODO catch error and rethrow with chunk name
     pass
 
 
@@ -830,7 +822,7 @@ def parse(chunk) -> tuple:
         next_token()
         fieldlist = fieldlist_optional()
         assert_lookahead_kind_and_read(TokenKind.Sep_RCurly)
-        return aggregate_exp_ctx(fieldlist_optional=tuple(fieldlist))
+        return aggregate_exp_ctx(fieldlist_optional=fieldlist)
 
     # fieldlist : token_string (',' token_string)* ','?;
     def fieldlist_optional():
@@ -893,7 +885,113 @@ def parse(chunk) -> tuple:
 
 # endregion
 
-# test
+# region code generation
+class Prototype:
+    def __init__(self, ast):
+        self.ast = ast
+
+
+def compile(chunk: str, chunkname='') -> Prototype:
+    # TODO catch error and rethrow with chunk name
+    pass
+
+
+# endregion
+
+# region vm
+
+class RuntimeException(Exception):
+    pass
+
+
+class IVirtualMachine:
+    def execute(self, proto):
+        pass
+
+
+# 时间紧张。。直接执行ast
+#
+# visit*函数，语句没有返回值，表达式有返回值
+# C#会很烦写一个tag-union，但是python就很轻松
+def execute(proto):
+    defined_variables = {}
+    visit_functions = {}
+
+    def error(msg):
+        raise RuntimeException(msg)
+
+    def visit(ctx):
+        # op = locals()['visit_' + type(ctx).__name__]
+        op = visit_functions['visit_' + type(ctx).__name__]
+        return op(ctx)
+
+    def visit_block_ctx(ctx):
+        for stat in ctx.stat_star:
+            visit_stat_ctx(stat)
+
+    def visit_stat_ctx(ctx):
+        visit(ctx)
+
+    def visit_define_stat_ctx(ctx):
+        name = ctx.identifier
+        token_string_optional = ctx.token_string_optional
+        defined_variables[name] = visit(token_string_optional) if token_string_optional else None
+
+    def visit_undef_stat_ctx(ctx):
+        name = ctx.identifier
+        # [Different ways to Remove a key from Dictionary in Python | del vs dict.pop() – thispointer.com](
+        # https://thispointer.com/different-ways-to-remove-a-key-from-dictionary-in-python/)
+        defined_variables.pop(name, None)
+
+    def visit_bool_exp_ctx(ctx):
+        return ctx.value
+
+    def visit_char_exp_ctx(ctx):
+        return ctx.value
+
+    def visit_int_exp_ctx(ctx):
+        return ctx.value
+
+    def visit_float_exp_ctx(ctx):
+        return ctx.value
+
+    def visit_string_exp_ctx(ctx):
+        return ctx.value
+
+    def visit_aggregate_exp_ctx(ctx):
+        fieldlist_optional_ = ctx.fieldlist_optional
+        return visit_fieldlist_optional_ctx(fieldlist_optional_) if fieldlist_optional_ else tuple()
+
+    def visit_fieldlist_optional_ctx(ctx):
+        return tuple(visit(token_string) for token_string in ctx.token_string_star)
+
+    def visit_conditional_stat_ctx(ctx):
+        take_if, if_block = visit_if_part_ctx(ctx.if_part)
+        if take_if:
+            visit_block_ctx(if_block)
+        elif ctx.else_part_optional:
+            else_block = ctx.else_part_optional.block
+            visit_block_ctx(else_block)
+        # else return
+
+    def visit_if_part_ctx(ctx):
+        return visit(ctx.if_line), ctx.block
+
+    def visit_ifdef_ctx(ctx):
+        return ctx.identifier in defined_variables
+
+    def visit_ifndef_ctx(ctx):
+        return ctx.identifier not in defined_variables
+
+    visit_functions = {k: v for k, v in locals().items() if k.startswith('visit_')}
+    block_, eof_ = proto.ast
+    visit_block_ctx(block_)
+    return defined_variables
+
+
+# endregion
+
+# region test
 
 test_id = 0
 
@@ -957,20 +1055,35 @@ print('test a')
 tpf(test_a)
 print('==== test parser end')
 
+
+# endregion
+
+# region test vm
+
+def tvf(f):
+    test_log()
+    proto = Prototype(parse(readall(f)))
+    pprint(execute(proto))
+
+
+tvf(test_a)
+
+# endregion
+
 # region final test
 
 exit(0)
 
-test_ai = PyMacroParser()
+test_a1 = PyMacroParser()
 test_a2 = PyMacroParser()
-test_ai.load("test_data/a.cpp")
+test_a1.load("test_data/a.cpp")
 filename = "test_data/b.cpp"
-test_ai.dump(filename)  # 没有预定义宏的情况下，dump cpp
+test_a1.dump(filename)  # 没有预定义宏的情况下，dump cpp
 test_a2.load(filename)
 a2_dict = test_a2.dumpDict()
-test_ai.preDefine("MC1;MC2")  # 指定预定义宏，再dump
-a1_dict = test_ai.dumpDict()
-test_ai.dump("test_data/c.cpp")
+test_a1.preDefine("MC1;MC2")  # 指定预定义宏，再dump
+a1_dict = test_a1.dumpDict()
+test_a1.dump("test_data/c.cpp")
 
 # 则b.cpp输出
 test_b = '''
