@@ -3,7 +3,6 @@
 
 
 from collections import namedtuple
-from enum import Enum, auto
 from pprint import pprint
 
 
@@ -35,7 +34,7 @@ class PyMacroParser:
 
 
 def readall(path):
-    with open(path, 'r', encoding='utf8') as f:
+    with open(path, 'r') as f:
         return f.read()
 
 
@@ -48,7 +47,16 @@ def writeall(path, text):
 
 # region lexer
 
-class TokenKind(Enum):
+enum_id = -1
+
+
+def auto():
+    global enum_id
+    enum_id += 1
+    return enum_id
+
+
+class TokenKind:
     Eof = auto()
     Newline = auto()
     Identifier = auto()
@@ -83,7 +91,7 @@ keywords = {
 }
 
 
-class NumberType(Enum):
+class NumberType:
     Decimal = auto()
     Octal = auto()
     Hexadecimal = auto()
@@ -129,22 +137,6 @@ def is_octal_digit(c):
 Token = namedtuple('Token', ['pos', 'kind', 'value'])
 
 
-# noinspection PyPropertyDefinition
-class ILexer:
-    @property
-    def eof(self):
-        pass
-
-    @property
-    def not_eof(self):
-        pass
-
-    # -> Token
-    @property
-    def next_token(self):
-        pass
-
-
 # 包装Lexer为一个带前瞻的流对象
 #
 # 词法分析认为是复杂计算，因此前瞻时缓存结果
@@ -152,33 +144,7 @@ class ILexer:
 # NextToken对应于流的指针，而LookAhead(n)的n是相对于流指针的偏移
 # LookAhead有单个元素和数组两个版本，因为我暂时不知道parser是否要用哪种，干脆都写
 # NextToken和LookAhead在未计算所需Token时计算并缓存Token，从缓存中取出Token
-class ITokenStream:
-    @property
-    def eos(self):
-        pass
-
-    @property
-    def not_eos(self):
-        pass
-
-    # 前瞻，不前进流指针
-    def lookahead(self, n=1):
-        pass
-
-    # def lookahead_array(self, n) -> tuple:
-    #     pass
-
-    # 返回下一个token，前进一格流指针
-    @property
-    def next_token(self):
-        pass
-
-    @property
-    def pos(self):
-        pass
-
-
-class TokenStream(ITokenStream):
+class TokenStream:
     def __init__(self, lexer):
         self.buffer = []
         # NOTE 注意指针初始值为-1，总是指向第一个可用的token前一格
@@ -234,7 +200,7 @@ class TokenStream(ITokenStream):
         return self.buffer[self.pointer + 1].pos
 
 
-class Lexer(ILexer):
+class Lexer:
     def __init__(self, chunk):
         self.chunk = chunk  # source code
         self.line = 1  # current line number
@@ -260,9 +226,6 @@ class Lexer(ILexer):
                             self.advance(1)
                     else:  # while else
                         self.advance(2)
-                # elif self.test('\r\n') || self.test('\n\r'):
-                #     self.next(2)
-                #     self.line+=1
                 elif is_whitespace(self.char):
                     self.advance(1)
                 else:
@@ -317,7 +280,7 @@ case ':':
             return res_token(TokenKind.Sep_Comma)
         elif c == '\'':
             self.advance(1)
-            # TODO 没有宽字符，但是转义没有处理
+            # [x] 没有宽字符，但是转义没有处理
             if self.eof:
                 self.error("unfinished char")
             c = self.scan_char()
@@ -336,7 +299,7 @@ case ':':
             if self.test_prefix('L\"'):
                 self.advance(1)
                 # [x] 宽字符串如何处理
-                s = self.scan_string()
+                s = unicode(self.scan_string())
                 return res_token(TokenKind.WideString, s)
             if c == '.' or is_digit(c):
                 t, v = self.scan_number()
@@ -348,7 +311,6 @@ case ':':
                     self.error("unreachable")
             if c == '_' or is_letter(c):
                 identifier = self.scan_identifier()
-                assert identifier.isidentifier()
                 # 关键字是这样处理的：先用id来lex，然后优先判定关键字
                 res = keywords.get(identifier)
                 if res:
@@ -987,9 +949,9 @@ def dump(defined_variables):
             return o.__str__()
         elif isinstance(o, str):
             return '"%s"' % o
-        # TODO
-        # elif IS_PYTHON2 and isinstance(o, unicode):
-        #     return 'L"%s' % o
+        # [x]
+        elif isinstance(o, unicode):
+            return 'L"%s' % o
         else:
             assert isinstance(o, tuple)
             return "{%s}" % ', '.join(py2cpp(i) for i in o)
