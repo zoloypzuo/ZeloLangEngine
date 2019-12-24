@@ -68,6 +68,7 @@ class TokenKind(Enum):
     Float = auto()
     Char = auto()
     String = auto()
+    WideString = auto()
     Sep_Pound = auto()  # '#'，百度说井字叫pound
     Sep_LCurly = auto()  # {
     Sep_RCurly = auto()  # }
@@ -235,7 +236,7 @@ class TokenStream(ITokenStream):
             while i < n_to_cache:
                 t = self.lexer.next_token
                 # if self.lexer.eof():
-                #     # TODO 这个异常可以捕获，再想想；parser自己check eof token，而不是捕获异常
+                #     # 这个异常可以捕获，再想想；parser自己check eof token，而不是捕获异常
                 #     # 比如 print(1缺一个右括号，parser调用lexer会走到这里
                 #     raise LexerException('no more tokens')
                 self.buffer.append(t)
@@ -348,9 +349,9 @@ case ':':
                 return res_token(TokenKind.Newline)
             if self.test_prefix('L\"'):
                 self.advance(1)
-                # TODO 宽字符串如何处理
+                # [x] 宽字符串如何处理
                 s = self.scan_string()
-                return res_token(TokenKind.String, s)
+                return res_token(TokenKind.WideString, s)
             if c == '.' or is_digit(c):
                 t, v = self.scan_number()
                 if t == NumberType.Decimal or t == NumberType.Hexadecimal or t == NumberType.Octal:
@@ -610,6 +611,7 @@ case ':':
                 string_builder.append('\\')
                 continue
             comment = '''
+    from zolo-lua
     case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9': // \ddd
         if found := reDecEscapeSeq.FindString(str); found != "" {
             d, _ := strconv.ParseInt(found[1:], 10, 32)
@@ -675,7 +677,6 @@ ifndef_ctx = namedtuple('ifndef_ctx', ['identifier'])
 
 
 # 返回AST，我们使用lisp
-# TODO lookahead(k)
 def parse(chunk) -> tuple:
     token_steam: ITokenStream = TokenStream(Lexer(chunk))
 
@@ -793,7 +794,7 @@ def parse(chunk) -> tuple:
         if test_lookahead_kind_not_in({TokenKind.Kw_True, TokenKind.Kw_False,
                                        TokenKind.Char,
                                        TokenKind.Int, TokenKind.Float,
-                                       TokenKind.String,
+                                       TokenKind.String, TokenKind.WideString,
                                        TokenKind.Sep_LCurly}):
             return None
         k = lookahead().kind
@@ -807,6 +808,8 @@ def parse(chunk) -> tuple:
             return float_exp()
         elif k == TokenKind.String:
             return string_exp()
+        elif k == TokenKind.WideString:
+            return wide_string_exp()
         else:
             assert k == TokenKind.Sep_LCurly
             return aggregate_exp()
@@ -825,8 +828,11 @@ def parse(chunk) -> tuple:
         return float_exp_ctx(value=next_token().value)
 
     def string_exp():
-        # TODO 我的string是一起的，要处理一下L字符串
+        # [x] 我的string是一起的，要处理一下L字符串
         return string_exp_ctx(is_long_str=False, value=next_token().value)
+
+    def wide_string_exp():
+        return string_exp_ctx(is_long_str=True, value=next_token().value)
 
     def aggregate_exp():
         next_token()
@@ -901,9 +907,9 @@ class Prototype:
         self.ast = ast
 
 
-def compile(chunk: str, chunkname='') -> Prototype:
-    # TODO catch error and rethrow with chunk name
-    pass
+# def compile(chunk: str, chunkname='') -> Prototype:
+#     # TODO catch error and rethrow with chunk name
+#     pass
 
 
 # endregion
@@ -1018,6 +1024,8 @@ def dump(defined_variables):
             return o.__str__()
         elif isinstance(o, str):
             return '"%s"' % o
+        elif IS_PYTHON2 and isinstance(o, unicode):
+            return 'L"%s' % o
         else:
             assert isinstance(o, tuple)
             return "{%s}" % ', '.join(py2cpp(i) for i in o)
