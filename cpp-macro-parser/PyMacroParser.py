@@ -678,7 +678,7 @@ def parse(chunk) -> tuple:
     token_steam: ITokenStream = TokenStream(Lexer(chunk))
 
     def error(msg):
-        raise ParserException(msg)
+        raise ParserException("%s %s" % (pos().__str__(), msg.__str__()))
 
     def test_lookahead_kind(kind: TokenKind, n=1):
         return lookahead(n).kind == kind
@@ -735,8 +735,9 @@ def parse(chunk) -> tuple:
         i = 0
         _len = len(kind_sequence)
         while i < _len:
-            if not test_lookahead_kind(kind_sequence[i], i):
+            if not test_lookahead_kind(kind_sequence[i], i + 1):
                 return False
+            i += 1
         return True
 
     # star返回一个可空的tuple
@@ -744,17 +745,22 @@ def parse(chunk) -> tuple:
     # optional返回None或者ctx
 
     def block() -> block_ctx:
+        def end_of_block():
+            return test_lookahead_kind(TokenKind.Eof) or test_lookahead_kind_sequence(
+                [TokenKind.Sep_Pound, TokenKind.Kw_Else]) or test_lookahead_kind_sequence(
+                [TokenKind.Sep_Pound, TokenKind.Kw_EndIf])
+
         stat_star = []
-        while not test_lookahead_kind(TokenKind.Eof):
+        while not end_of_block():
             if test_lookahead_kind(TokenKind.Sep_Pound):
                 stat_star.append(stat())
-                k = lookahead().kind
-                if k == TokenKind.Eof:
-                    return block_ctx(stat_star=tuple(stat_star))
+                if end_of_block():
+                    break
                 else:
                     assert_lookahead_kind_and_read(TokenKind.Newline)
             else:
                 assert_lookahead_kind_and_read(TokenKind.Newline)
+        return block_ctx(stat_star=tuple(stat_star))
 
     def stat():
         assert_lookahead_kind(TokenKind.Sep_Pound)
@@ -764,7 +770,7 @@ def parse(chunk) -> tuple:
         elif k == TokenKind.Kw_UnDef:
             return undef_stat()
         else:
-            assert k == TokenKind.Kw_IfDef or k == TokenKind.Kw_UnDef, pos()
+            assert k == TokenKind.Kw_IfDef or k == TokenKind.Kw_IfNDef, pos()
             return conditional_stat()
 
     def define_stat():
@@ -846,9 +852,13 @@ def parse(chunk) -> tuple:
         return fieldlist_optional_ctx(token_string_star=token_string_star)
 
     def conditional_stat():
+        if_part_ = if_part()
+        else_part_optional_ = else_part_optional()
+        assert_lookahead_kind_and_read(TokenKind.Sep_Pound)
+        assert_lookahead_kind_and_read(TokenKind.Kw_EndIf)
         return conditional_stat_ctx(
-            if_part=if_part(),
-            else_part_optional=else_part_optional()
+            if_part=if_part_,
+            else_part_optional=else_part_optional_
         )
 
     def if_part():
@@ -935,12 +945,15 @@ def tpf(f):
 
 
 print('==== test parsr start')
+tpf(test_a)
+
 tp('')
 tp('#undef a')
 tp('#define a')
 tp('#define a 1')
 tpf(test_skip)
 tpf(test_define)
+print('test a')
 tpf(test_a)
 print('==== test parser end')
 
