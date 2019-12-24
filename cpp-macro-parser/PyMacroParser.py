@@ -1,38 +1,11 @@
 #!/usr/bin/python
 # -*- coding: UTF-8 -*-
 
-# region 简易沙箱，你不应该再import任何东西了
-
-# blacklist = ['re']
-# for mod in blacklist:
-#     i = __import__(mod)
-#     sys.modules[mod] = None
-# eval = None
-# exec = None
-# copy = None
-# deepcopy = None
 
 from collections import namedtuple
 from enum import Enum, auto
 from pprint import pprint
 
-
-# endregion
-
-# region common
-
-
-def readall(path):
-    with open(path, 'r', encoding='utf8') as f:
-        return f.read()
-
-
-def writeall(path, text):
-    with open(path, 'w') as f:
-        f.write(text)
-
-
-# endregion
 
 # noinspection PyPep8Naming,PyShadowingNames
 class PyMacroParser:
@@ -57,6 +30,21 @@ class PyMacroParser:
         # 题目要求，每次调用自动清理掉之前的预定义宏序列
         self.predefined_names = names
 
+
+# region common
+
+
+def readall(path):
+    with open(path, 'r', encoding='utf8') as f:
+        return f.read()
+
+
+def writeall(path, text):
+    with open(path, 'w') as f:
+        f.write(text)
+
+
+# endregion
 
 # region lexer
 
@@ -105,9 +93,12 @@ class LexerException(Exception):
     pass
 
 
+WHITESPACE_CHARSET = set(' \t\v\f')
+
+
 # str确实有一些帮助判断的函数，但是建议自己写
 def is_whitespace(c):
-    return c in set(' \t\v\f')  # 这种写法会导致每次构造一个set，建议提取变量
+    return c in WHITESPACE_CHARSET
 
 
 def is_digit(c):
@@ -130,16 +121,7 @@ def is_hex_digit(c):
     return '0' <= c <= '9' or 'A' <= c <= "F" or 'a' <= c <= 'f'
 
 
-class Token:
-    def __init__(self, pos, kind, value):
-        self.pos: tuple = pos
-        self.kind: TokenKind = kind
-        self.value = value
-
-    def __str__(self):
-        return (self.pos, self.kind, self.value).__str__()
-
-    __repr__ = __str__
+Token = namedtuple('Token', ['pos', 'kind', 'value'])
 
 
 # noinspection PyPropertyDefinition
@@ -152,8 +134,9 @@ class ILexer:
     def not_eof(self):
         pass
 
+    # -> Token
     @property
-    def next_token(self) -> Token:
+    def next_token(self):
         pass
 
 
@@ -166,15 +149,15 @@ class ILexer:
 # NextToken和LookAhead在未计算所需Token时计算并缓存Token，从缓存中取出Token
 class ITokenStream:
     @property
-    def eos(self) -> bool:
+    def eos(self):
         pass
 
     @property
-    def not_eos(self) -> bool:
+    def not_eos(self):
         pass
 
     # 前瞻，不前进流指针
-    def lookahead(self, n=1) -> Token:
+    def lookahead(self, n=1):
         pass
 
     # def lookahead_array(self, n) -> tuple:
@@ -182,16 +165,16 @@ class ITokenStream:
 
     # 返回下一个token，前进一格流指针
     @property
-    def next_token(self) -> Token:
+    def next_token(self):
         pass
 
     @property
-    def pos(self) -> tuple:
+    def pos(self):
         pass
 
 
 class TokenStream(ITokenStream):
-    def __init__(self, lexer: ILexer):
+    def __init__(self, lexer):
         self.buffer = []
         # NOTE 注意指针初始值为-1，总是指向第一个可用的token前一格
         # 这样比如初始时lookahead(1)返回buffer[0]
@@ -242,12 +225,12 @@ class TokenStream(ITokenStream):
                 i += 1
 
     @property
-    def pos(self) -> tuple:
+    def pos(self):
         return self.buffer[self.pointer + 1].pos
 
 
 class Lexer(ILexer):
-    def __init__(self, chunk: str):
+    def __init__(self, chunk):
         self.chunk = chunk  # source code
         self.line = 1  # current line number
         self.column = 1
@@ -255,7 +238,7 @@ class Lexer(ILexer):
         self.pointer = 0
 
     @property
-    def next_token(self) -> Token:
+    def next_token(self):
 
         def skip():
             while self.not_eof:
@@ -282,7 +265,7 @@ class Lexer(ILexer):
 
         # 返回token
         # value尽早在lexer就解析出值，字符串的转义也处理好
-        def res_token(kind: TokenKind, value=None):
+        def res_token(kind, value=None):
             column = self.last_column
             self.last_column = self.column
             return Token((self.line, column), kind, value)
@@ -411,7 +394,7 @@ case ':':
         return self.not_eof and self.char == c
 
     # 测试chunk接下来是否是s，类似于re.match
-    def test_prefix(self, s: str):
+    def test_prefix(self, s):
         return self.chunk.startswith(s, self.pointer)
 
     def test_char_in_charset(self, charset):
@@ -426,7 +409,7 @@ case ':':
     def try_advance_char_is(self, c):
         return self.try_advance_base(lambda: self.test_char_is(c), 1)
 
-    def try_advance_prefix(self, s: str):
+    def try_advance_prefix(self, s):
         return self.try_advance_base(lambda: self.test_prefix(s), len(s))
 
     # 自己决定charset是str还是set
@@ -435,11 +418,11 @@ case ':':
 
     # 指针前进
     # 不要叫next，避免和python-generator的next冲突
-    def advance(self, n: int):
+    def advance(self, n):
         self.column += n
         self.pointer += n
 
-    def error(self, msg: str):
+    def error(self, msg):
         raise LexerException(self.line, self.column, msg)
 
     @property
@@ -676,13 +659,13 @@ ifndef_ctx = namedtuple('ifndef_ctx', ['identifier'])
 
 # 返回AST，我们使用lisp
 # TODO lookahead(k)
-def parse(chunk) -> tuple:
-    token_steam: ITokenStream = TokenStream(Lexer(chunk))
+def parse(chunk):
+    token_steam = TokenStream(Lexer(chunk))
 
     def error(msg):
         raise ParserException("%s %s" % (pos().__str__(), msg.__str__()))
 
-    def test_lookahead_kind(kind: TokenKind, n=1):
+    def test_lookahead_kind(kind, n=1):
         return lookahead(n).kind == kind
 
     def next_token():
@@ -720,10 +703,10 @@ def parse(chunk) -> tuple:
         t = lookahead()
         return t.kind == kind
 
-    def test_lookahead_kind_in(kind_set: set):
+    def test_lookahead_kind_in(kind_set):
         return lookahead().kind in kind_set
 
-    def test_lookahead_kind_not_in(kind_set: set):
+    def test_lookahead_kind_not_in(kind_set):
         return not lookahead().kind in kind_set
 
     # 验证下一Token是标识符并返回标识符的名字
@@ -746,7 +729,7 @@ def parse(chunk) -> tuple:
     # plus返回非空的tuple
     # optional返回None或者ctx
 
-    def block() -> block_ctx:
+    def block():
         def end_of_block():
             return test_lookahead_kind(TokenKind.Eof) or test_lookahead_kind_sequence(
                 [TokenKind.Sep_Pound, TokenKind.Kw_Else]) or test_lookahead_kind_sequence(
@@ -901,7 +884,8 @@ class Prototype:
         self.ast = ast
 
 
-def compile(chunk: str, chunkname='') -> Prototype:
+# -> Prototype
+def compile(chunk, chunkname=''):
     # TODO catch error and rethrow with chunk name
     pass
 
@@ -912,11 +896,6 @@ def compile(chunk: str, chunkname='') -> Prototype:
 
 class RuntimeException(Exception):
     pass
-
-
-class IVirtualMachine:
-    def execute(self, proto):
-        pass
 
 
 # 时间紧张。。直接执行ast
@@ -1053,7 +1032,7 @@ test_a = 'test_data/a.cpp'
 def tl(s):
     test_log()
     lexer = Lexer(s)
-    token_steam: ITokenStream = TokenStream(lexer)
+    token_steam = TokenStream(lexer)
     while token_steam.not_eos:
         t = token_steam.next_token
         print(t)
