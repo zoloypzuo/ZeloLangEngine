@@ -30,6 +30,7 @@ class PyMacroParser:
         # 题目要求，每次调用自动清理掉之前的预定义宏序列
         self.predefined_names = names
 
+
 # region common
 
 
@@ -119,6 +120,10 @@ def is_identifier_char(c):
 
 def is_hex_digit(c):
     return '0' <= c <= '9' or 'A' <= c <= "F" or 'a' <= c <= 'f'
+
+
+def is_octal_digit(c):
+    return '0' <= c <= '7'
 
 
 Token = namedtuple('Token', ['pos', 'kind', 'value'])
@@ -315,9 +320,8 @@ case ':':
             # TODO 没有宽字符，但是转义没有处理
             if self.eof:
                 self.error("unfinished char")
-            c = self.char
-            self.advance(1)
-            if self.eof or self.char != '\'':
+            c = self.scan_char()
+            if not self.test_char_is('\''):
                 self.error("unfinished char")
             else:
                 self.advance(1)
@@ -512,7 +516,7 @@ case ':':
                 # octal-constant:
                 #     0
                 #     octal-constant octal-digit
-                while self.not_eof and '0' <= self.char <= '7':
+                while self.not_eof and is_octal_digit(self.char):
                     self.advance(1)
                 value = int(lexeme(), 8)
                 abandon_int_suffix()
@@ -552,82 +556,62 @@ case ':':
         self.advance(1)  # first char is checked
         string_builder = []  # 没有找到StringBuilder
         while self.not_eof and self.char != '\"':
-            c = self.char
-            self.advance(1)
-            # 处理转义
-            if c != '\\':
-                string_builder.append(c)
-                continue
-            if self.eof:
-                self.error("unfinished string")
-            c = self.char
-            self.advance(1)
-            if c == 'a':
-                string_builder.append('\a')
-                continue
-            elif c == 'b':
-                string_builder.append('\b')
-                continue
-            elif c == 'f':
-                string_builder.append('\f')
-                continue
-            elif c == 'n':
-                string_builder.append('\n')
-                continue
-            elif c == 'r':
-                string_builder.append('\r')
-                continue
-            elif c == 't':
-                string_builder.append('\t')
-                continue
-            elif c == 'v':
-                string_builder.append('\v')
-                continue
-            elif c == '"':
-                string_builder.append('"')
-                continue
-            elif c == '\'':
-                string_builder.append('\'')
-                continue
-            elif c == '\\':
-                string_builder.append('\\')
-                continue
-            comment = '''
-    from zolo-lua
-    case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9': // \ddd
-        if found := reDecEscapeSeq.FindString(str); found != "" {
-            d, _ := strconv.ParseInt(found[1:], 10, 32)
-            if d <= 0xFF {
-                buf.WriteByte(byte(d))
-                str = str[len(found):]
-                continue
-            }
-            self.error("decimal escape too large near '%s'", found)
-        }
-    case 'x': // \\xXX
-        if found := reHexEscapeSeq.FindString(str); found != "" {
-            d, _ := strconv.ParseInt(found[2:], 16, 32)
-            buf.WriteByte(byte(d))
-            str = str[len(found):]
-            continue
-        }
-    case 'u': // \\u{XXX}
-        if found := reUnicodeEscapeSeq.FindString(str); found != "" {
-            d, err := strconv.ParseInt(found[3:len(found)-1], 16, 32)
-            if err == nil && d <= 0x10FFFF {
-                buf.WriteRune(rune(d))
-                str = str[len(found):]
-                continue
-            }
-            self.error("UTF-8 value too large near '%s'", found)
-        }                                
-                    '''
-            self.error("invalid escape sequence near '\\%s'" % c)
+            string_builder.append(self.scan_char())
         if self.eof or self.char != '\"':
             self.error("unfinished string")
         else:
             self.advance(1)  # read the quote
             return ''.join(string_builder)
+
+    def scan_char(self):
+        c = self.char
+        self.advance(1)
+        # 处理转义
+        if c != '\\':
+            return c
+        if self.eof:
+            self.error("unfinished string")
+        c = self.char
+        self.advance(1)
+        if c == 'a':
+            return '\a'
+        elif c == 'b':
+            return '\b'
+        elif c == 'f':
+            return '\f'
+        elif c == 'n':
+            return '\n'
+        elif c == 'r':
+            return '\r'
+        elif c == 't':
+            return '\t'
+        elif c == 'v':
+            return '\v'
+        elif c == '"':
+            return '"'
+        elif c == '\'':
+            return '\''
+        elif c == '\\':
+            return '\\'
+        elif c == '?':
+            # python提示不支持这个转义字符
+            self.error('python does not support escape sequence \\?')
+            # return '\?'
+        elif is_octal_digit(c):
+            # 回退一格
+            # 这里已经吃进一个八进制位了，不会出错
+            p = self.pointer - 1
+            while self.test_char_predicate(is_octal_digit):
+                self.advance(1)
+            return chr(int(self.chunk[p:self.pointer], 8))
+        elif c == 'x':
+            p = self.pointer
+            if not self.test_char_predicate(is_hex_digit):
+                self.error('unfinished hex escape char')
+            while self.test_char_predicate(is_hex_digit):
+                self.advance(1)
+            return chr(int(self.chunk[p:self.pointer], 16))
+        self.error("invalid escape sequence near '\\%s'" % c)
 
 
 # endregion
@@ -888,6 +872,7 @@ def parse(chunk):
 class Prototype:
     def __init__(self, ast):
         self.ast = ast
+
 
 # 时间紧张，不编译
 # def compile(chunk: str, chunkname='') -> Prototype:
