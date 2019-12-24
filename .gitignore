@@ -115,3 +115,5 @@ dmypy.json
 
 # @zoloypzuo
 .idea/**
+cpp-macro-parser/test_data/b.cpp
+cpp-macro-parser/test_data/c.cpp
