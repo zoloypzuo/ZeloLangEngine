@@ -6,7 +6,6 @@ from collections import namedtuple
 
 
 # noinspection PyPep8Naming,PyShadowingNames
-from pprint import pprint
 
 
 class PyMacroParser:
@@ -26,7 +25,7 @@ class PyMacroParser:
     def preDefine(self, s):
         if s == '':
             return
-        names = s.split(';')
+        names = [i for i in s.split(';') if i != '' and i.strip() != '']
         # 题目要求，每次调用自动清理掉之前的预定义宏序列
         self.predefined_names = names
 
@@ -35,11 +34,8 @@ class PyMacroParser:
 
 
 def readall(path):
-    # try:
     with open(path, 'r') as f:
         return f.read()
-    # except IOError as e:
-    #     raise e
 
 
 def writeall(path, text):
@@ -434,7 +430,6 @@ class Lexer:
             return b
 
         c = self.char
-        self.advance(1)
         if self.try_advance_char_is('.'):  # float
             # . digit-sequence exponent-part? float-suffix?
             if not digit_sequence():
