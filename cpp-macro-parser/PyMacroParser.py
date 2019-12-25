@@ -6,6 +6,9 @@ from collections import namedtuple
 
 
 # noinspection PyPep8Naming,PyShadowingNames
+from pprint import pprint
+
+
 class PyMacroParser:
     def __init__(self):
         self.proto = None
@@ -914,10 +917,10 @@ def dump(defined_variables):
             return "{%s}" % ', '.join(py2cpp(i) for i in o)
 
     def define(name, value=None):
-        return '#define %s %s\n' % (
+        return '#define %s %s' % (
             name, py2cpp(value) if value is not None else '')
 
-    return ''.join(
+    return '\n'.join(
         define(name, value)
         for name, value in defined_variables.items())
 
