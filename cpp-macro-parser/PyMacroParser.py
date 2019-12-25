@@ -430,7 +430,8 @@ class Lexer:
             return b
 
         c = self.char
-        if self.try_advance_char_is('.'):  # float
+        self.advance(1)
+        if c == '.':  # float
             # . digit-sequence exponent-part? float-suffix?
             if not digit_sequence():
                 self.error('float miss digit-sequence')
