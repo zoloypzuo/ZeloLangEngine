@@ -4,10 +4,8 @@
 
 from collections import namedtuple
 
+
 # noinspection PyPep8Naming,PyShadowingNames
-from pprint import pprint
-
-
 class PyMacroParser:
     def __init__(self):
         self.proto = None
@@ -51,6 +49,10 @@ def auto():
     global enum_id
     enum_id += 1
     return enum_id
+
+
+def text_pointer(index):
+    return ' ' * index + '^'
 
 
 # endregion
@@ -369,7 +371,8 @@ class Lexer:
         self.pointer += n
 
     def error(self, msg):
-        raise LexerException("%s, %s, %s" % (self.chunkname, (self.line, self.column), msg))
+        raise LexerException(
+            "\n%s, %s, %s\n%s" % (self.chunkname, (self.line, self.column), msg, text_pointer(self.column)))
 
     @property
     def char(self):
@@ -394,7 +397,19 @@ class Lexer:
 
         # 转为python都是int，所以后缀信息没用
         # 而且实测int函数不能解析后缀，所以要先解析再advance
+        # u
+        # ul
+        # ull
+        # l
+        # lu
+        # ll
+        # llu
         def abandon_int_suffix():
+            if not self.test_char_in_charset('lLuU'):
+                return
+            self.try_advance_prefix('ll')
+            self.try_advance_prefix('LL')
+            self.try_advance_char_in_charset('lLuU')
             self.try_advance_prefix('ll')
             self.try_advance_prefix('LL')
             self.try_advance_char_in_charset('lLuU')
@@ -494,9 +509,9 @@ class Lexer:
     def scan_string(self):
         self.advance(1)  # first char is checked
         string_builder = []
-        while self.not_eof and self.char != '\"':
+        while not self.test_char_is('\"'):
             string_builder.append(self.scan_char())
-        if self.eof or self.char != '\"':
+        if not self.test_char_is('\"'):
             self.error("unfinished string")
         else:
             self.advance(1)  # read the quote
@@ -532,6 +547,8 @@ class Lexer:
             return '\''
         elif c == '\\':
             return '\\'
+        elif c == '/':  # from leptjson
+            return '/'
         elif c == '?':
             # python提示不支持这个转义字符
             self.error('python does not support escape sequence \\?')
@@ -584,9 +601,10 @@ ifndef_ctx = namedtuple('ifndef_ctx', ['identifier'])
 # 返回AST，我们使用lisp
 def parse(chunk, chunkname=''):
     token_steam = TokenStream(Lexer(chunk, chunkname))
+    chunkname = chunkname or chunk
 
     def error(msg):
-        raise ParserException("%s %s" % (pos().__str__(), msg.__str__()))
+        raise ParserException("\n%s, %s, %s\n%s" % (chunkname, pos(), msg, text_pointer(pos()[1])))
 
     def test_lookahead_kind(kind, n=1):
         return lookahead(n).kind == kind
@@ -613,7 +631,10 @@ def parse(chunk, chunkname=''):
 
     def test_kind_and_read(kind):
         t = lookahead()
-        return t.kind == kind
+        b = t.kind == kind
+        if b:
+            next_token()
+        return b
 
     def test_lookahead_kind_in(kind_set):
         return lookahead().kind in kind_set
@@ -743,6 +764,7 @@ def parse(chunk, chunkname=''):
         token_string_star.append(i)
         while True:
             if test_lookahead_kind_sequence([TokenKind.Sep_Comma, TokenKind.Sep_RCurly]):
+                next_token()  # read comma
                 break
             elif test_lookahead_kind(TokenKind.Sep_RCurly):
                 break
@@ -920,222 +942,4 @@ def dump(defined_variables):
         define(name, value)
         for name, value in defined_variables.items())
 
-
-# endregion
-# region test
-
-test_id = 0
-
-
-def test_log():
-    global test_id
-    print('---- start test %s' % test_id)
-    test_id += 1
-
-
-test_skip = 'test_data/lexer/skip.cpp'
-test_define = 'test_data/define.cpp'
-test_a = 'test_data/a.cpp'
-
-
-# region test lexer
-def tl(s):
-    test_log()
-    lexer = Lexer(s)
-    token_steam = TokenStream(lexer)
-    while token_steam.not_eos:
-        t = token_steam.next_token
-        print(t)
-        if t.kind == TokenKind.Eof:
-            break
-
-
-def tlf(f):
-    tl(readall(f))
-
-
-print('==== test lexer start')
-tlf(test_skip)
-tlf(test_define)
-print('==== test lexer end')
-
-
-# endregion
-
-# region test parser
-
-def tp(s):
-    test_log()
-    pprint(parse(s), width=1)
-
-
-def tpf(f):
-    tp(readall(f))
-
-
-print('==== test parser start')
-tpf(test_a)
-
-tp('')
-tp('#undef a')
-tp('#define a')
-tp('#define a 1')
-tpf(test_skip)
-tpf(test_define)
-print('test a')
-tpf(test_a)
-print('==== test parser end')
-
-
-# endregion
-
-# region test vm
-
-def tv(s):
-    test_log()
-    return execute(Prototype(parse(s)))
-
-
-def tvf(f):
-    test_log()
-    proto = Prototype(parse(readall(f)))
-    pprint(execute(proto))
-
-
-tvf(test_a)
-tvf(test_define)
-tvf(test_skip)
-
-tv('/*asd*/#/*ded*/define/*ad*/\tcharc\t\'a\'')
-tv('/*asd*/#/*ded*/define/*ad*/\tcharc\t\'\123\'')
-tv('/*asd*/#/*ded*/define/*ad*/\ta\t1.5e6')
-tv('#define a {1,2,3,4}')
-tv('#define a {80,{90}}')
-
-
-def tvl(literal, expected):
-    actual = tv('#define a %s' % literal)['a']
-    assert actual == expected, 'expect %s, get %s' % (expected, actual)
-
-
-tvl('true', True)
-tvl('false', False)
-
-
-def TEST_NUMBER(expected, literal):
-    tvl(literal, expected)
-
-
-TEST_NUMBER(0.0, "0")
-TEST_NUMBER(0.0, "-0")
-TEST_NUMBER(0.0, "-0.0")
-TEST_NUMBER(1.0, "1")
-TEST_NUMBER(-1.0, "-1")
-TEST_NUMBER(1.5, "1.5")
-TEST_NUMBER(-1.5, "-1.5")
-TEST_NUMBER(3.1416, "3.1416")
-TEST_NUMBER(1E10, "1E10")
-TEST_NUMBER(1e10, "1e10")
-TEST_NUMBER(1E+10, "1E+10")
-TEST_NUMBER(1E-10, "1E-10")
-TEST_NUMBER(-1E10, "-1E10")
-TEST_NUMBER(-1e10, "-1e10")
-TEST_NUMBER(-1E+10, "-1E+10")
-TEST_NUMBER(-1E-10, "-1E-10")
-TEST_NUMBER(1.234E+10, "1.234E+10")
-TEST_NUMBER(1.234E-10, "1.234E-10")
-TEST_NUMBER(0.0, "1e-10000")  # must underflow */
-
-TEST_NUMBER(1.0000000000000002, "1.0000000000000002")  # the smallest number > 1 */
-TEST_NUMBER(4.9406564584124654e-324, "4.9406564584124654e-324")  # minimum denormal */
-TEST_NUMBER(-4.9406564584124654e-324, "-4.9406564584124654e-324")
-TEST_NUMBER(2.2250738585072009e-308, "2.2250738585072009e-308")  # Max subnormal double */
-TEST_NUMBER(-2.2250738585072009e-308, "-2.2250738585072009e-308")
-TEST_NUMBER(2.2250738585072014e-308, "2.2250738585072014e-308")  # Min normal positive double */
-TEST_NUMBER(-2.2250738585072014e-308, "-2.2250738585072014e-308")
-TEST_NUMBER(1.7976931348623157e+308, "1.7976931348623157e+308")  # Max double */
-TEST_NUMBER(-1.7976931348623157e+308, "-1.7976931348623157e+308")
-
-
-def TEST_STRING(expect, literal):
-    tvl(literal, expect)
-
-
-TEST_STRING("", "\"\"")
-TEST_STRING("Hello", "\"Hello\"")
-TEST_STRING("Hello\nWorld", "\"Hello\\nWorld\"")
-# TEST_STRING("\" \\ / \b \f \n \r \t", "\"\\\" \\\\ \\/ \\b \\f \\n \\r \\t\"")
-# TEST_STRING("Hello\0World", "\"Hello\\u0000World\"")
-# TEST_STRING("\x24", "\"\\u0024\"")  # Dollar sign U+0024 */
-# TEST_STRING("\xC2\xA2", "\"\\u00A2\"")  # Cents sign U+00A2 */
-# TEST_STRING("\xE2\x82\xAC", "\"\\u20AC\"")  # Euro sign U+20AC */
-# TEST_STRING("\xF0\x9D\x84\x9E", "\"\\uD834\\uDD1E\"")  # G clef sign U+1D11E */
-# TEST_STRING("\xF0\x9D\x84\x9E", "\"\\ud834\\udd1e\"")  # G clef sign U+1D11E */
-
-# endregion
-
-# region final test
-
-
-test_a1 = PyMacroParser()
-test_a2 = PyMacroParser()
-test_a1.load("test_data/a.cpp")
-filename = "test_data/b.cpp"
-test_a1.dump(filename)  # 没有预定义宏的情况下，dump cpp
-test_a2.load(filename)
-a2_dict = test_a2.dumpDict()
-test_a1.preDefine("MC1;MC2")  # 指定预定义宏，再dump
-a1_dict = test_a1.dumpDict()
-test_a1.dump("test_data/c.cpp")
-
-# 则b.cpp输出
-test_b = '''
-#define data1 1.0 //浮点精度信息消失，统一转成了double 正式输出没有这个注释
-#define data2 2
-#define data3 false
-#define data4 "this is a data"
-#define data5 68 //注意：这里本是'D' 转换后成为整型十进制表示，正式输出没有这个注释
-#define data6 {1, 6}
-#define MCTEST //空宏，但是被定义了, 正式输出没有这个注释
-'''
-
-# a2.dump字典
-d2 = {
-    "data1": 1.0,
-    "data2": 2,
-    "data3": False,
-    "data4": "this is a data",
-    "data5": 68,
-    "data6": (1, 6),
-    "MCTEST": None,  # 空宏，但被定义了。 正式输出没有这个注释
-}
-
-# a1.dump字典：
-d1 = {
-    "data1": 32,
-    "data2": 2.5,  # 2.5f的float标记消失，正式输出没有这个注释
-    "data3": u"this is a data",  # 宽字符串成为 unicode 正式输出没有这个注释
-    "data4": True,
-    "data5": 97,  # 注意 这里是'a'转int。 正式输出没有这个注释
-    "data6": ((2.0, "abc"), (1.5, "def"), (5.6, "7.2")),  # python数据对象与源数据类型按规则对应即可， 正式输出没有这个注释
-    "MC1": None,  # 预定义的空宏，而MC2最终被undef了，所以不存在MC2
-    "MCTEST": None,
-}
-
-# c.cpp 输出
-test_c = '''
-#define data1 32 //16进制表示消失。 正式输出没有这个注释
-#define data2 2.5
-#define data3 L"this is a data" //unicode 转回宽字符 正式输出没有这个注释
-#define data4 true
-#define data5 97 //'a', 正式输出没有这个注释
-#define data6 {{2.0, "abc"}, {1.5, "def"}, {5.6, "7.2"}} #tuple转回聚合， 正式输出没有这个注释
-#define MC1
-#define MCTEST
-'''
-
-assert a1_dict == d1
-assert a2_dict == d2
-
-# endregion
 # endregion
