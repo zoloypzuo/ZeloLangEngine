@@ -205,12 +205,13 @@ class TokenStream:
 
 
 class Lexer:
-    def __init__(self, chunk):
+    def __init__(self, chunk, chunkname=''):
         self.chunk = chunk  # source code
         self.line = 1  # current line number
         self.column = 1
         self.last_column = 1  # 构造Token时指针已经移动到lexeme末尾了，所以要延迟一下
         self.pointer = 0
+        self.chunkname = chunkname or chunk
 
     @property
     def next_token(self):
@@ -283,14 +284,13 @@ class Lexer:
                 # [x] 宽字符串如何处理
                 s = unicode(self.scan_string())
                 return res_token(TokenKind.WideString, s)
-            if c == '.' or is_digit(c):
+            if c in '.+-' or is_digit(c):
                 t, v = self.scan_number()
                 if t == NumberType.Decimal or t == NumberType.Hexadecimal or t == NumberType.Octal:
                     return res_token(TokenKind.Int, v)
-                elif t == NumberType.Float:
-                    return res_token(TokenKind.Float, v)
                 else:
-                    self.error("unreachable")
+                    assert t == NumberType.Float
+                    return res_token(TokenKind.Float, v)
             if c == '_' or is_letter(c):
                 identifier = self.scan_identifier()
                 # 关键字是这样处理的：先用id来lex，然后优先判定关键字
@@ -369,7 +369,7 @@ class Lexer:
         self.pointer += n
 
     def error(self, msg):
-        raise LexerException(self.line, self.column, msg)
+        raise LexerException("%s, %s, %s" % (self.chunkname, (self.line, self.column), msg))
 
     @property
     def char(self):
@@ -413,12 +413,12 @@ class Lexer:
         #     e signopt digit-sequence
         #     E signopt digit-sequence
         def exponent_part():
-            res = self.try_advance_char_in_charset('eE')
-            if res:
+            b = self.try_advance_char_in_charset('eE')
+            if b:
                 self.try_advance_char_in_charset('+-')
                 if not digit_sequence():
                     self.error('float miss digit-sequence')
-            return res
+            return b
 
         # digit-sequence:
         #     digit
@@ -461,7 +461,7 @@ class Lexer:
                 abandon_int_suffix()
                 return NumberType.Octal, value
         else:  # int or float
-            assert '1' <= c <= '9'
+            assert is_digit(c) or c in '+-'
             # 不管是int还是float，首先解析出整数
             digit_sequence()
             if self.test_char_in_charset('.eE'):  # float
@@ -582,8 +582,8 @@ ifndef_ctx = namedtuple('ifndef_ctx', ['identifier'])
 
 
 # 返回AST，我们使用lisp
-def parse(chunk):
-    token_steam = TokenStream(Lexer(chunk))
+def parse(chunk, chunkname=''):
+    token_steam = TokenStream(Lexer(chunk, chunkname))
 
     def error(msg):
         raise ParserException("%s %s" % (pos().__str__(), msg.__str__()))
@@ -991,6 +991,11 @@ print('==== test parser end')
 
 # region test vm
 
+def tv(s):
+    test_log()
+    return execute(Prototype(parse(s)))
+
+
 def tvf(f):
     test_log()
     proto = Prototype(parse(readall(f)))
@@ -1000,6 +1005,72 @@ def tvf(f):
 tvf(test_a)
 tvf(test_define)
 tvf(test_skip)
+
+tv('/*asd*/#/*ded*/define/*ad*/\tcharc\t\'a\'')
+tv('/*asd*/#/*ded*/define/*ad*/\tcharc\t\'\123\'')
+tv('/*asd*/#/*ded*/define/*ad*/\ta\t1.5e6')
+tv('#define a {1,2,3,4}')
+tv('#define a {80,{90}}')
+
+
+def tvl(literal, expected):
+    actual = tv('#define a %s' % literal)['a']
+    assert actual == expected, 'expect %s, get %s' % (expected, actual)
+
+
+tvl('true', True)
+tvl('false', False)
+
+
+def TEST_NUMBER(expected, literal):
+    tvl(literal, expected)
+
+
+TEST_NUMBER(0.0, "0")
+TEST_NUMBER(0.0, "-0")
+TEST_NUMBER(0.0, "-0.0")
+TEST_NUMBER(1.0, "1")
+TEST_NUMBER(-1.0, "-1")
+TEST_NUMBER(1.5, "1.5")
+TEST_NUMBER(-1.5, "-1.5")
+TEST_NUMBER(3.1416, "3.1416")
+TEST_NUMBER(1E10, "1E10")
+TEST_NUMBER(1e10, "1e10")
+TEST_NUMBER(1E+10, "1E+10")
+TEST_NUMBER(1E-10, "1E-10")
+TEST_NUMBER(-1E10, "-1E10")
+TEST_NUMBER(-1e10, "-1e10")
+TEST_NUMBER(-1E+10, "-1E+10")
+TEST_NUMBER(-1E-10, "-1E-10")
+TEST_NUMBER(1.234E+10, "1.234E+10")
+TEST_NUMBER(1.234E-10, "1.234E-10")
+TEST_NUMBER(0.0, "1e-10000")  # must underflow */
+
+TEST_NUMBER(1.0000000000000002, "1.0000000000000002")  # the smallest number > 1 */
+TEST_NUMBER(4.9406564584124654e-324, "4.9406564584124654e-324")  # minimum denormal */
+TEST_NUMBER(-4.9406564584124654e-324, "-4.9406564584124654e-324")
+TEST_NUMBER(2.2250738585072009e-308, "2.2250738585072009e-308")  # Max subnormal double */
+TEST_NUMBER(-2.2250738585072009e-308, "-2.2250738585072009e-308")
+TEST_NUMBER(2.2250738585072014e-308, "2.2250738585072014e-308")  # Min normal positive double */
+TEST_NUMBER(-2.2250738585072014e-308, "-2.2250738585072014e-308")
+TEST_NUMBER(1.7976931348623157e+308, "1.7976931348623157e+308")  # Max double */
+TEST_NUMBER(-1.7976931348623157e+308, "-1.7976931348623157e+308")
+
+
+def TEST_STRING(expect, literal):
+    tvl(literal, expect)
+
+
+TEST_STRING("", "\"\"")
+TEST_STRING("Hello", "\"Hello\"")
+TEST_STRING("Hello\nWorld", "\"Hello\\nWorld\"")
+# TEST_STRING("\" \\ / \b \f \n \r \t", "\"\\\" \\\\ \\/ \\b \\f \\n \\r \\t\"")
+# TEST_STRING("Hello\0World", "\"Hello\\u0000World\"")
+# TEST_STRING("\x24", "\"\\u0024\"")  # Dollar sign U+0024 */
+# TEST_STRING("\xC2\xA2", "\"\\u00A2\"")  # Cents sign U+00A2 */
+# TEST_STRING("\xE2\x82\xAC", "\"\\u20AC\"")  # Euro sign U+20AC */
+# TEST_STRING("\xF0\x9D\x84\x9E", "\"\\uD834\\uDD1E\"")  # G clef sign U+1D11E */
+# TEST_STRING("\xF0\x9D\x84\x9E", "\"\\ud834\\udd1e\"")  # G clef sign U+1D11E */
 
 # endregion
 
@@ -1066,4 +1137,5 @@ test_c = '''
 assert a1_dict == d1
 assert a2_dict == d2
 
+# endregion
 # endregion
