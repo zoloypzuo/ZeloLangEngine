@@ -8,9 +8,9 @@ from PyMacroParser import *
 test_id = 0
 
 
-def test_log():
+def test_log(title=''):
     global test_id
-    print('---- start test %s' % test_id)
+    print('---- start test %s %s' % (test_id, title))
     test_id += 1
 
 
@@ -19,7 +19,7 @@ test_define = 'test_data/define.cpp'
 test_a = 'test_data/a.cpp'
 # endregion
 
-# region final test
+# region question base test
 
 
 test_a1 = PyMacroParser()
@@ -87,7 +87,7 @@ assert a2_dict == d2
 
 # region test lexer
 def tl(s):
-    test_log()
+    test_log(s)
     lexer = Lexer(s)
     token_steam = TokenStream(lexer)
     while token_steam.not_eos:
@@ -98,7 +98,14 @@ def tl(s):
 
 
 def tlf(f):
-    tl(readall(f))
+    test_log(f)
+    lexer = Lexer(readall(f))
+    token_steam = TokenStream(lexer)
+    while token_steam.not_eos:
+        t = token_steam.next_token
+        print(t)
+        if t.kind == TokenKind.Eof:
+            break
 
 
 print('==== test lexer start')
@@ -112,13 +119,13 @@ print('==== test lexer end')
 # region test parser
 
 def tp(s):
-    test_log()
+    test_log(s)
     pprint(parse(s), width=1)
 
 
 def tpf(f):
-    test_log()
-    pprint(parse(readall(f),f), width=1)
+    test_log(f)
+    pprint(parse(readall(f), f), width=1)
 
 
 print('==== test parser start')
@@ -137,16 +144,15 @@ print('==== test parser end')
 
 # endregion
 
-# region test vm
 
 def tv(s):
-    test_log()
+    test_log(s)
     return execute(Prototype(parse(s)))
 
 
 def tvf(f):
-    test_log()
-    proto = Prototype(parse(readall(f),f))
+    test_log(f)
+    proto = Prototype(parse(readall(f), f))
     pprint(execute(proto))
 
 
@@ -254,6 +260,6 @@ tvl('900000000001ull', 900000000001)
 # tvl('0x8A40000000000010uLL'
 
 tvl('{{2.0, "abc"}, {1.5, "def",}, {5.6, "7.2",},}', ((2.0, "abc"), (1.5, "def"), (5.6, "7.2")))
-# endregion
 
 tvf('test_data/test6.cpp')
+tvf('test_data/branch.cpp')
