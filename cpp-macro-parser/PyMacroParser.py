@@ -372,7 +372,8 @@ class Lexer:
 
     def error(self, msg):
         raise LexerException(
-            "\n%s, %s, %s\n%s" % (self.chunkname, (self.line, self.column), msg, text_pointer(self.column)))
+            "\n%s, %s, %s\n%s\n%s" % (self.chunkname, (self.line, self.column), msg,
+                                      self.chunk.splitlines()[self.line - 1], text_pointer(self.column)))
 
     @property
     def char(self):
@@ -604,7 +605,9 @@ def parse(chunk, chunkname=''):
     chunkname = chunkname or chunk
 
     def error(msg):
-        raise ParserException("\n%s, %s, %s\n%s" % (chunkname, pos(), msg, text_pointer(pos()[1])))
+        raise ParserException("\n%s, %s, %s\n%s\n%s" % (chunkname, pos(), msg,
+                                                        chunk.splitlines()[pos()[0] - 1],
+                                                        text_pointer(pos()[1])))
 
     def test_lookahead_kind(kind, n=1):
         return lookahead(n).kind == kind
