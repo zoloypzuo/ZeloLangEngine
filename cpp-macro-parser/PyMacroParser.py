@@ -445,6 +445,7 @@ class Lexer:
                 pass
             return b
 
+        self.try_advance_char_in_charset('+-')
         c = self.char
         self.advance(1)
         if c == '.':  # float
@@ -477,7 +478,7 @@ class Lexer:
                 abandon_int_suffix()
                 return NumberType.Octal, value
         else:  # int or float
-            assert is_digit(c) or c in '+-'
+            assert is_digit(c)
             # 不管是int还是float，首先解析出整数
             digit_sequence()
             if self.test_char_in_charset('.eE'):  # float
@@ -747,10 +748,16 @@ def parse(chunk, chunkname=''):
 
     def string_exp():
         # [x] 我的string是一起的，要处理一下L字符串
-        return string_exp_ctx(is_long_str=False, value=next_token().value)
+        string_builder = []
+        while test_lookahead_kind_in((TokenKind.String, TokenKind.WideString)):
+            string_builder.append(next_token().value)
+        return string_exp_ctx(is_long_str=False, value=''.join(string_builder))
 
     def wide_string_exp():
-        return string_exp_ctx(is_long_str=True, value=next_token().value)
+        string_builder = []
+        while test_lookahead_kind_in((TokenKind.String, TokenKind.WideString)):
+            string_builder.append(next_token().value)
+        return string_exp_ctx(is_long_str=True, value=''.join(string_builder))
 
     def aggregate_exp():
         next_token()
