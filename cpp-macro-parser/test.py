@@ -176,7 +176,7 @@ def TEST_NUMBER(expected, literal):
 
 TEST_NUMBER(0.0, "0")
 TEST_NUMBER(0.0, "-0")
-TEST_NUMBER(0.0, "-0.0")
+TEST_NUMBER(0.0, "-0.0")  # BUG 0可能是float或者oct
 TEST_NUMBER(1.0, "1")
 TEST_NUMBER(-1.0, "-1")
 TEST_NUMBER(1.5, "1.5")
