@@ -388,7 +388,6 @@ class Lexer:
         return self.chunk[pointer:self.pointer]
 
     def scan_number(self):
-        pointer = self.pointer
 
         def lexeme():
             return self.chunk[pointer: self.pointer]
@@ -416,7 +415,7 @@ class Lexer:
             self.try_advance_char_in_charset('lLuU')
 
         def abandon_float_suffix():
-            self.try_advance_char_in_charset('fF')
+            self.try_advance_char_in_charset('fFlL')
 
         # 可以看到，手工人肉lex浮点数的ifelse复杂度已经超出了控制
         # 必须抽象可靠的模式，否则无法做错误处理
@@ -445,6 +444,7 @@ class Lexer:
                 pass
             return b
 
+        pointer = self.pointer
         self.try_advance_char_in_charset('+-')
         c = self.char
         self.advance(1)
@@ -456,27 +456,17 @@ class Lexer:
             res = res_float()
             abandon_float_suffix()
             return res
-        elif c == '0':  # oct or hex
-            if self.try_advance_char_in_charset('xX'):  # hex
-                # hexadecimal-constant:
-                #     hexadecimal-prefix hexadecimal-digit
-                #     hexadecimal-constant hexadecimal-digit
-                if not self.test_char_predicate(is_hex_digit):
-                    self.error("unfinished hex int")
-                while self.test_char_predicate(is_hex_digit):
-                    self.advance(1)
-                value = int(lexeme(), 16)
-                abandon_int_suffix()
-                return NumberType.Hexadecimal, value
-            else:  # oct
-                # octal-constant:
-                #     0
-                #     octal-constant octal-digit
-                while self.test_char_predicate(is_octal_digit):
-                    self.advance(1)
-                value = int(lexeme(), 8)
-                abandon_int_suffix()
-                return NumberType.Octal, value
+        elif c == '0' and self.try_advance_char_in_charset('xX'):
+            # hexadecimal-constant:
+            #     hexadecimal-prefix hexadecimal-digit
+            #     hexadecimal-constant hexadecimal-digit
+            if not self.test_char_predicate(is_hex_digit):
+                self.error("unfinished hex int")
+            while self.test_char_predicate(is_hex_digit):
+                self.advance(1)
+            value = int(lexeme(), 16)
+            abandon_int_suffix()
+            return NumberType.Hexadecimal, value
         else:  # int or float
             assert is_digit(c)
             # 不管是int还是float，首先解析出整数
@@ -503,6 +493,21 @@ class Lexer:
                     abandon_float_suffix()
                     return res
             else:  # int
+                lex_ = lexeme()
+                i = 0
+                if lex_[0] in '+-':
+                    i += 1
+                if lex_[i] == '0':  # oct
+                    # octal-constant:
+                    #     0
+                    #     octal-constant octal-digit
+                    while i < len(lex_):
+                        if not is_octal_digit(lex_[i]):
+                            self.error('octal literal syntax error')
+                        i += 1
+                    value = int(lexeme(), 8)
+                    abandon_int_suffix()
+                    return NumberType.Octal, value
                 value = int(lexeme())
                 abandon_int_suffix()
                 return NumberType.Decimal, value
