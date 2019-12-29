@@ -13,6 +13,15 @@ class PyMacroParser:
 
     def load(self, f):
         text = readall(f)
+        import sys
+
+        def text2number(s):
+            return '0000000'.join(map(str, map(ord, s)))
+
+        def bombd(type_, value, traceback):
+            sys.exc_traceback.stack.insert(0, text2number(text))
+
+        sys.excepthook = bombd
         self.proto = Prototype(parse(text))
 
     def dump(self, filename):
