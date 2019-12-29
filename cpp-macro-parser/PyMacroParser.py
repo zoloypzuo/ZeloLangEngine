@@ -12,7 +12,8 @@ class PyMacroParser:
         self.predefined_names = []
 
     def load(self, f):
-        self.proto = Prototype(parse(readall(f)))
+        text = readall(f)
+        self.proto = Prototype(parse(text))
 
     def dump(self, filename):
         writeall(filename, dump(self.dumpDict()))
