@@ -1,5 +1,7 @@
 #!/usr/bin/python
 # -*- coding: UTF-8 -*-
+
+
 from pprint import pprint
 
 from PyMacroParser import *
@@ -263,3 +265,10 @@ tvl('{{2.0, "abc"}, {1.5, "def",}, {5.6, "7.2",},}', ((2.0, "abc"), (1.5, "def")
 
 tvf('test_data/test6.cpp')
 tvf('test_data/branch.cpp')
+
+import  sys
+try:
+    raise Exception()
+except:
+    print 'af'
+print "af"
