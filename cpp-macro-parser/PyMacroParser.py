@@ -1,10 +1,17 @@
 #!/usr/bin/python
 # -*- coding: UTF-8 -*-
 
-
+# [x] [parser]发生错误直接忽略并继续到下一行，目前从下一行开始解析语句
+#   这个还是有点bug，发生异常时最后会有index out of range异常，比较难调试
+#   [x] 添加相应开关，便于开发调试，因为你catch了导致parser内部call-stack没了
+# [x] [lexer]lexer返回的token先添加lexeme字符串帮助调试和测试
+# [x] [lexer]将lexer改为返回lexeme
+#   TODO parser解析lexeme得到value
+# [x] [lexer]注释和空白被skip导致无法测试，现在不跳过，而且添加相应开关
+# [x] [lexer]空白的skip走ws+，而不是通过外部循环读完
+# [x] [lexer]lexeme用一对指针标识，比如antlr，你可能很多lexeme是抛弃的，你全部slice出str就导致性能问题
+import sys
 from collections import namedtuple
-from enum import Enum, auto
-from pprint import pprint
 
 
 # noinspection PyPep8Naming,PyShadowingNames
@@ -14,7 +21,8 @@ class PyMacroParser:
         self.predefined_names = []
 
     def load(self, f):
-        self.proto = Prototype(parse(readall(f)))
+        text = readall(f)
+        self.proto = Prototype(parse(text))
 
     def dump(self, filename):
         writeall(filename, dump(self.dumpDict()))
@@ -23,19 +31,18 @@ class PyMacroParser:
         return execute(self.proto, self.predefined_names)
 
     def preDefine(self, s):
-        # 这种字符串格式的输入，讲道理应该做更多检查的，但是不让用re
         if s == '':
             return
-        names = s.split(';')
+        names = [i for i in s.split(';') if i != '' and i.strip() != '']
         # 题目要求，每次调用自动清理掉之前的预定义宏序列
         self.predefined_names = names
 
 
-# region common
+# region common util
 
 
 def readall(path):
-    with open(path, 'r', encoding='utf8') as f:
+    with open(path, 'r') as f:
         return f.read()
 
 
@@ -44,34 +51,71 @@ def writeall(path, text):
         f.write(text)
 
 
+# python2没有enum
+
+OPTION_ENUM_USE_STRING = True
+_ENUM_ID = -1
+_ENUM_NAMES = set()
+
+
+# [x] auto支持使用string，添加开关，关闭时只比较enum-id
+# 替换自动生成代码：Sublime里正则替换(.*) = auto\(\)为\1 = auto\('\1'\)
+def auto(name=''):
+    global _ENUM_ID
+    _ENUM_ID += 1
+    # name默认是空串，那么这个枚举仍然用数字，这个是没有影响的
+    if OPTION_ENUM_USE_STRING and name:
+        assert name not in _ENUM_NAMES
+        _ENUM_NAMES.add(name)
+        return name
+    return _ENUM_ID
+
+
+def text_pointer(index):
+    return ' ' * index + '^'
+
+
 # endregion
 
 # region lexer
 
-class TokenKind(Enum):
-    Eof = auto()
-    Newline = auto()
-    Identifier = auto()
-    Int = auto()
-    Float = auto()
-    Char = auto()
-    String = auto()
-    WideString = auto()
-    Sep_Pound = auto()  # '#'，百度说井字叫pound
-    Sep_LCurly = auto()  # {
-    Sep_RCurly = auto()  # }
-    Sep_Comma = auto()  # ,
-    Kw_IfDef = auto()  # ifdef
-    Kw_IfNDef = auto()  # ifndef
-    Kw_Define = auto()  # define
-    Kw_UnDef = auto()  # undef
-    Kw_Else = auto()  # else
-    Kw_EndIf = auto()  # endif
-    Kw_True = auto()  # true
-    Kw_False = auto()  # false
+
+# noinspection PyClassHasNoInit
+class TokenKind:
+    Eof = auto('Eof')
+    Newline = auto('Newline')
+    Identifier = auto('Identifier')
+    Int = auto('Int')
+    Float = auto('Float')
+    Char = auto('Char')
+    String = auto('String')
+    WideString = auto('WideString')
+    Sep_Pound = auto('Sep_Pound')  # '#'
+    Sep_LCurly = auto('Sep_LCurly')  # {
+    Sep_RCurly = auto('Sep_RCurly')  # }
+    Sep_Comma = auto('Sep_Comma')  # ,
+    Kw_IfDef = auto('Kw_IfDef')  # ifdef
+    Kw_IfNDef = auto('Kw_IfNDef')  # ifndef
+    Kw_Define = auto('Kw_Define')  # define
+    Kw_UnDef = auto('Kw_UnDef')  # undef
+    Kw_Else = auto('Kw_Else')  # else
+    Kw_EndIf = auto('Kw_EndIf')  # endif
+    Kw_True = auto('Kw_True')  # true
+    Kw_False = auto('Kw_False')  # false
+    Error = auto('Error')  # 代表一个错误，会使parser抛出异常
+    Skip_LineComment = auto('Skip_LineComment')
+    Skip_BlockComment = auto('Skip_BlockComment')
+    Skip_Whitespaces = auto('Skip_Whitespaces')
 
 
-keywords = {
+PUNCTUATORS = {
+    '#': TokenKind.Sep_Pound,
+    '{': TokenKind.Sep_LCurly,
+    '}': TokenKind.Sep_RCurly,
+    ',': TokenKind.Sep_Comma
+}
+
+KEYWORDS = {
     'ifdef': TokenKind.Kw_IfDef,
     'ifndef': TokenKind.Kw_IfNDef,
     'define': TokenKind.Kw_Define,
@@ -83,7 +127,8 @@ keywords = {
 }
 
 
-class NumberType(Enum):
+# noinspection PyClassHasNoInit
+class NumberType:
     Decimal = auto()
     Octal = auto()
     Hexadecimal = auto()
@@ -95,6 +140,7 @@ class LexerException(Exception):
 
 
 WHITESPACE_CHARSET = set(' \t\v\f')
+SKIP_FIRST_CHARSET = set('/') | WHITESPACE_CHARSET  # 注释和空白符的first-set
 
 
 # str确实有一些帮助判断的函数，但是建议自己写
@@ -126,25 +172,16 @@ def is_octal_digit(c):
     return '0' <= c <= '7'
 
 
-Token = namedtuple('Token', ['pos', 'kind', 'value'])
+Token = namedtuple('Token', ['pos', 'kind', 'value', 'lexeme', 'chunk'])
 
 
-# noinspection PyPropertyDefinition
-class ILexer:
-    @property
-    def eof(self):
-        pass
-
-    @property
-    def not_eof(self):
-        pass
-
-    # -> Token
-    @property
-    def next_token(self):
-        pass
+def get_text(token):
+    assert Lexer.OPTION_LEXEME_USE_SLICE
+    a, b = token.lexeme
+    return token.chunk[a:b]
 
 
+# [x] 添加flush以支持错误处理时清刷到下一行重新开始
 # 包装Lexer为一个带前瞻的流对象
 #
 # 词法分析认为是复杂计算，因此前瞻时缓存结果
@@ -152,33 +189,8 @@ class ILexer:
 # NextToken对应于流的指针，而LookAhead(n)的n是相对于流指针的偏移
 # LookAhead有单个元素和数组两个版本，因为我暂时不知道parser是否要用哪种，干脆都写
 # NextToken和LookAhead在未计算所需Token时计算并缓存Token，从缓存中取出Token
-class ITokenStream:
-    @property
-    def eos(self):
-        pass
+class TokenStream:
 
-    @property
-    def not_eos(self):
-        pass
-
-    # 前瞻，不前进流指针
-    def lookahead(self, n=1):
-        pass
-
-    # def lookahead_array(self, n) -> tuple:
-    #     pass
-
-    # 返回下一个token，前进一格流指针
-    @property
-    def next_token(self):
-        pass
-
-    @property
-    def pos(self):
-        pass
-
-
-class TokenStream(ITokenStream):
     def __init__(self, lexer):
         self.buffer = []
         # NOTE 注意指针初始值为-1，总是指向第一个可用的token前一格
@@ -205,7 +217,6 @@ class TokenStream(ITokenStream):
         return tuple(self.buffer[p:p + n])
 
     # 返回下一个token，前进一格流指针
-    @property
     def next_token(self):
         self.cache_if_need(1)
         self.pointer += 1
@@ -221,7 +232,7 @@ class TokenStream(ITokenStream):
             n_to_cache = p + n - _len + 1
             i = 0
             while i < n_to_cache:
-                t = self.lexer.next_token
+                t = self.lexer.next_token()
                 # if self.lexer.eof():
                 #     # [x] 这个异常可以捕获，再想想；parser自己check eof token，而不是捕获异常
                 #     # 比如 print(1缺一个右括号，parser调用lexer会走到这里
@@ -233,73 +244,77 @@ class TokenStream(ITokenStream):
     def pos(self):
         return self.buffer[self.pointer + 1].pos
 
+    def flush_to_next_line(self):
+        # 如果eof，则eos
+        if self.lexer.flush_to_next_line():
+            return True
+        self.buffer = []
+        self.pointer = -1
+        return False
 
-class Lexer(ILexer):
-    def __init__(self, chunk):
+
+class Lexer:
+    OPTION_OUTPUT_SKIP_TOKEN = False
+    OPTION_LEXEME_USE_SLICE = False
+
+    def __init__(self, chunk, chunkname=''):
         self.chunk = chunk  # source code
         self.line = 1  # current line number
-        self.column = 1
-        self.last_column = 1  # 构造Token时指针已经移动到lexeme末尾了，所以要延迟一下
+        self.column = 0
+        self.last_column = 0  # 构造Token时指针已经移动到lexeme末尾了，所以要延迟一下
         self.pointer = 0
+        self.chunkname = chunkname or chunk
+        # 跟踪lexeme字符串，更新这个指针来开始一个新lexeme
+        # res_token函数会结束并输出一个lexeme，然后更新这个指针为self.pointer
+        self.lexeme_start_pointer = 0
 
-    @property
     def next_token(self):
 
-        def skip():
-            while self.not_eof:
-                if self.test_prefix('//'):
-                    self.advance(2)
-                    while self.not_eof and not is_newline(self.char):
-                        self.advance(1)
-                elif self.test_prefix('/*'):
-                    self.advance(2)
-                    while not self.test_prefix('*/'):
-                        # 注释会包含换行
-                        # 另一种方法是解析出来，然后数一下有多少换行
-                        if not self.newline():
-                            self.advance(1)
-                    else:  # while else
-                        self.advance(2)
-                # elif self.test('\r\n') || self.test('\n\r'):
-                #     self.next(2)
-                #     self.line+=1
-                elif is_whitespace(self.char):
-                    self.advance(1)
-                else:
-                    break
-
-        # 返回token
-        # value尽早在lexer就解析出值，字符串的转义也处理好
         def res_token(kind, value=None):
             column = self.last_column
             self.last_column = self.column
-            return Token((self.line, column), kind, value)
+            lexeme = (self.lexeme_start_pointer, self.pointer) \
+                if Lexer.OPTION_LEXEME_USE_SLICE \
+                else self.chunk[self.lexeme_start_pointer:self.pointer]
+            self.lexeme_start_pointer = self.pointer
+            return Token((self.line, column), kind, value, lexeme, self.chunk)
 
-        skip()
+        # skip
+        #   原本是函数，现在为了支持哑Token展开了
+        while self.test_char_in_charset(SKIP_FIRST_CHARSET):
+            if self.test_prefix('//'):
+                self.advance(2)  # '//'
+                # TODO 考虑为什么有很多eof-check；是不是应该用状态机；或者基于现在的手工模式来改进
+                # TODO 修改所有while not，添加eof测试，用单行string，每种Token
+                while self.not_eof and not self.test_char_predicate(is_newline):
+                    self.advance(1)
+                res = res_token(TokenKind.Skip_LineComment)
+                if Lexer.OPTION_OUTPUT_SKIP_TOKEN:
+                    return res
+            elif self.test_prefix('/*'):
+                # TODO [error-handle] unfinished long comment；eof了还没有读到*/
+                self.advance(2)  # '/*'
+                while not self.test_prefix('*/'):
+                    # 注释会包含换行
+                    # 另一种方法是解析出来，然后数一下有多少换行
+                    if not self.newline():
+                        self.advance(1)
+                self.advance(2)  # '*/'
+                res = res_token(TokenKind.Skip_BlockComment)
+                if Lexer.OPTION_OUTPUT_SKIP_TOKEN:
+                    return res
+            else:
+                assert is_whitespace(self.char)
+                self.advance(1)
+                while self.test_char_predicate(is_whitespace):
+                    self.advance(1)
+                res = res_token(TokenKind.Skip_Whitespaces)
+                if Lexer.OPTION_OUTPUT_SKIP_TOKEN:
+                    return res
         # 被跳过的内容不输出token，但是column要更新
         self.last_column = self.column
         if self.eof:
             return res_token(TokenKind.Eof)
-
-        '''
-接下来的大switch
-有的token靠第一个字符就能区别出来，很简单
-
-第二简单的是比如<和<=
-例子：
-case ':':
-    if self.test("::") {
-        self.next(2)
-        return self.line, TOKEN_SEP_LABEL, "::"
-    } else {
-        self.next(1)
-        return self.line, TOKEN_SEP_COLON, ":"
-    }
-
-比较难的是.
-.在编程语言中一般用于访问成员，但是，浮点数可以直接用点开头
-这需要判断是否是数字，然后把数字解析扔到default里去解析        
-        '''
 
         c = self.char
 
@@ -317,7 +332,7 @@ case ':':
             return res_token(TokenKind.Sep_Comma)
         elif c == '\'':
             self.advance(1)
-            # TODO 没有宽字符，但是转义没有处理
+            # [x] 没有宽字符，但是转义没有处理
             if self.eof:
                 self.error("unfinished char")
             c = self.scan_char()
@@ -336,21 +351,19 @@ case ':':
             if self.test_prefix('L\"'):
                 self.advance(1)
                 # [x] 宽字符串如何处理
-                s = self.scan_string()
+                s = unicode(self.scan_string())
                 return res_token(TokenKind.WideString, s)
-            if c == '.' or is_digit(c):
+            if c in '.+-' or is_digit(c):
                 t, v = self.scan_number()
                 if t == NumberType.Decimal or t == NumberType.Hexadecimal or t == NumberType.Octal:
                     return res_token(TokenKind.Int, v)
-                elif t == NumberType.Float:
-                    return res_token(TokenKind.Float, v)
                 else:
-                    self.error("unreachable")
+                    assert t == NumberType.Float
+                    return res_token(TokenKind.Float, v)
             if c == '_' or is_letter(c):
                 identifier = self.scan_identifier()
-                assert identifier.isidentifier()
                 # 关键字是这样处理的：先用id来lex，然后优先判定关键字
-                res = keywords.get(identifier)
+                res = KEYWORDS.get(identifier)
                 if res:
                     return res_token(res)
                 else:
@@ -416,23 +429,24 @@ case ':':
     def try_advance_prefix(self, s):
         return self.try_advance_base(lambda: self.test_prefix(s), len(s))
 
-    # 自己决定charset是str还是set
     def try_advance_char_in_charset(self, charset):
         return self.try_advance_base(lambda: self.test_char_in_charset(charset), 1)
 
     # 指针前进
-    # 不要叫next，避免和python-generator的next冲突
     def advance(self, n):
         self.column += n
         self.pointer += n
 
     def error(self, msg):
-        raise LexerException(self.line, self.column, msg)
+        raise LexerException(
+            "\n%s, %s, %s\n%s\n%s" % (self.chunkname, (self.line, self.column), msg,
+                                      self.chunk.splitlines()[self.line - 1], text_pointer(self.column)))
 
     @property
     def char(self):
         return self.chunk[self.pointer]
 
+    # TODO 重写scan-id，支持universal-char-name
     # Identifier :  [a-zA-Z_][a-zA-Z_0-9]*;
     def scan_identifier(self):
         pointer = self.pointer
@@ -441,11 +455,10 @@ case ':':
             self.advance(1)
         return self.chunk[pointer:self.pointer]
 
-    # HARD 想想办法逃课把。。。
-    # 首字母无法判断是int还是float
-    # 返回Token
+    def scan_universal_character_name(self):
+        pass
+
     def scan_number(self):
-        pointer = self.pointer
 
         def lexeme():
             return self.chunk[pointer: self.pointer]
@@ -455,13 +468,25 @@ case ':':
 
         # 转为python都是int，所以后缀信息没用
         # 而且实测int函数不能解析后缀，所以要先解析再advance
+        # u
+        # ul
+        # ull
+        # l
+        # lu
+        # ll
+        # llu
         def abandon_int_suffix():
+            if not self.test_char_in_charset('lLuU'):
+                return
+            self.try_advance_prefix('ll')
+            self.try_advance_prefix('LL')
+            self.try_advance_char_in_charset('lLuU')
             self.try_advance_prefix('ll')
             self.try_advance_prefix('LL')
             self.try_advance_char_in_charset('lLuU')
 
         def abandon_float_suffix():
-            self.try_advance_char_in_charset('fF')
+            self.try_advance_char_in_charset('fFlL')
 
         # 可以看到，手工人肉lex浮点数的ifelse复杂度已经超出了控制
         # 必须抽象可靠的模式，否则无法做错误处理
@@ -474,25 +499,27 @@ case ':':
         #     e signopt digit-sequence
         #     E signopt digit-sequence
         def exponent_part():
-            res = self.try_advance_char_in_charset('eE')
-            if res:
+            b = self.try_advance_char_in_charset('eE')
+            if b:
                 self.try_advance_char_in_charset('+-')
                 if not digit_sequence():
                     self.error('float miss digit-sequence')
-            return res
+            return b
 
         # digit-sequence:
         #     digit
         #     digit-sequence digit
         def digit_sequence():
-            res = self.test_char_is_digit()
+            b = self.test_char_is_digit()
             while self.try_advance_base(self.test_char_is_digit, 1):
                 pass
-            return res
+            return b
 
+        pointer = self.pointer
+        self.try_advance_char_in_charset('+-')
         c = self.char
         self.advance(1)
-        if self.try_advance_char_is('.'):  # float
+        if c == '.':  # float
             # . digit-sequence exponent-part? float-suffix?
             if not digit_sequence():
                 self.error('float miss digit-sequence')
@@ -500,29 +527,19 @@ case ':':
             res = res_float()
             abandon_float_suffix()
             return res
-        elif c == '0':  # oct or hex
-            if self.try_advance_char_in_charset('xX'):  # hex
-                # hexadecimal-constant:
-                #     hexadecimal-prefix hexadecimal-digit
-                #     hexadecimal-constant hexadecimal-digit
-                if not self.test_char_predicate(is_hex_digit):
-                    self.error("unfinished hex int")
-                while self.test_char_predicate(is_hex_digit):
-                    self.advance(1)
-                value = int(lexeme(), 16)
-                abandon_int_suffix()
-                return NumberType.Hexadecimal, value
-            else:  # oct
-                # octal-constant:
-                #     0
-                #     octal-constant octal-digit
-                while self.not_eof and is_octal_digit(self.char):
-                    self.advance(1)
-                value = int(lexeme(), 8)
-                abandon_int_suffix()
-                return NumberType.Octal, value
+        elif c == '0' and self.try_advance_char_in_charset('xX'):
+            # hexadecimal-constant:
+            #     hexadecimal-prefix hexadecimal-digit
+            #     hexadecimal-constant hexadecimal-digit
+            if not self.test_char_predicate(is_hex_digit):
+                self.error("unfinished hex int")
+            while self.test_char_predicate(is_hex_digit):
+                self.advance(1)
+            value = int(lexeme(), 16)
+            abandon_int_suffix()
+            return NumberType.Hexadecimal, value
         else:  # int or float
-            assert '1' <= c <= '9'
+            assert is_digit(c)
             # 不管是int还是float，首先解析出整数
             digit_sequence()
             if self.test_char_in_charset('.eE'):  # float
@@ -547,6 +564,21 @@ case ':':
                     abandon_float_suffix()
                     return res
             else:  # int
+                lex_ = lexeme()
+                i = 0
+                if lex_[0] in '+-':
+                    i += 1
+                if lex_[i] == '0':  # oct
+                    # octal-constant:
+                    #     0
+                    #     octal-constant octal-digit
+                    while i < len(lex_):
+                        if not is_octal_digit(lex_[i]):
+                            self.error('octal literal syntax error')
+                        i += 1
+                    value = int(lexeme(), 8)
+                    abandon_int_suffix()
+                    return NumberType.Octal, value
                 value = int(lexeme())
                 abandon_int_suffix()
                 return NumberType.Decimal, value
@@ -554,10 +586,10 @@ case ':':
     # 扫描，完成转移，返回没有两端引号的文本内容
     def scan_string(self):
         self.advance(1)  # first char is checked
-        string_builder = []  # 没有找到StringBuilder
-        while self.not_eof and self.char != '\"':
+        string_builder = []
+        while not self.test_char_is('\"'):
             string_builder.append(self.scan_char())
-        if self.eof or self.char != '\"':
+        if not self.test_char_is('\"'):
             self.error("unfinished string")
         else:
             self.advance(1)  # read the quote
@@ -593,17 +625,22 @@ case ':':
             return '\''
         elif c == '\\':
             return '\\'
+        elif c == '/':  # from leptjson
+            return '/'
         elif c == '?':
             # python提示不支持这个转义字符
             self.error('python does not support escape sequence \\?')
             # return '\?'
         elif is_octal_digit(c):
-            # 回退一格
+            # [x] 在三个八进制位或者一个非八进制位处结束
             # 这里已经吃进一个八进制位了，不会出错
-            p = self.pointer - 1
-            while self.test_char_predicate(is_octal_digit):
+            p = self.pointer - 1  # 回退一格
+            counter3 = 2
+            while counter3 > 0 and self.test_char_predicate(is_octal_digit):
                 self.advance(1)
-            return chr(int(self.chunk[p:self.pointer], 8))
+                counter3 -= 1
+            v_ = self.chunk[p:self.pointer]
+            return chr(int(v_, 8))
         elif c == 'x':
             p = self.pointer
             if not self.test_char_predicate(is_hex_digit):
@@ -612,6 +649,18 @@ case ':':
                 self.advance(1)
             return chr(int(self.chunk[p:self.pointer], 16))
         self.error("invalid escape sequence near '\\%s'" % c)
+
+    # 将指针移动到下一行，该换行符也被跳过
+    # 如果eof，返回True给TokenSteam，TokenSteam给出eos，parser结束
+    def flush_to_next_line(self):
+        while self.not_eof and not self.newline():
+            self.advance(1)
+        if self.eof:
+            return True
+        self.column = 0
+        self.last_column = 0
+        self.lexeme_start_pointer = self.pointer
+        return False
 
 
 # endregion
@@ -643,32 +692,24 @@ ifndef_ctx = namedtuple('ifndef_ctx', ['identifier'])
 
 
 # 返回AST，我们使用lisp
-# [x] lookahead(k)
-def parse(chunk):
-    token_steam = TokenStream(Lexer(chunk))
+def parse(chunk, chunkname=''):
+    OPTION_RECOVER_FROM_ERROR = False
 
-    def error(msg):
-        raise ParserException("%s %s" % (pos().__str__(), msg.__str__()))
+    def error(msg):  # TODO 这里有太多的局部函数，每次parse都会赋值一次，这是没有必要的，然而写成类很累赘
+        raise ParserException(
+            "\n%s, %s, %s\n%s\n%s" %
+            (chunkname, pos(), msg,
+             chunk.splitlines()[pos()[0] - 1],
+             text_pointer(pos()[1])))
 
     def test_lookahead_kind(kind, n=1):
         return lookahead(n).kind == kind
 
     def next_token():
-        return token_steam.next_token
+        return token_steam.next_token()
 
     def lookahead(n=1):
         return token_steam.lookahead(n)
-
-    # assert grammar function
-    # 每个语法成分对应一个函数
-    # 函数返回一个bool和ast
-    # bool代表是否有这个语法成分，交给调用者用于判断
-    # def assert_has_NT(g_function):
-    #     b, ast = g_function()
-    #     if not b:
-    #         error("miss %s" % g_function.__name__)
-    #     else:
-    #         return ast
 
     def assert_lookahead_kind(kind):
         t = lookahead()
@@ -686,7 +727,10 @@ def parse(chunk):
 
     def test_kind_and_read(kind):
         t = lookahead()
-        return t.kind == kind
+        b = t.kind == kind
+        if b:
+            next_token()
+        return b
 
     def test_lookahead_kind_in(kind_set):
         return lookahead().kind in kind_set
@@ -720,17 +764,21 @@ def parse(chunk):
                 [TokenKind.Sep_Pound, TokenKind.Kw_Else]) or test_lookahead_kind_sequence(
                 [TokenKind.Sep_Pound, TokenKind.Kw_EndIf])
 
-        stat_star = []
-        while not end_of_block():
-            if test_lookahead_kind(TokenKind.Sep_Pound):
-                stat_star.append(stat())
-                if end_of_block():
-                    break
+        def stat_star():
+            stat_list = []
+            while not end_of_block():
+                if test_lookahead_kind(TokenKind.Sep_Pound):
+                    stat_ = stat()
+                    stat_list.append(stat_)
+                    if end_of_block():
+                        break
+                    else:
+                        assert_lookahead_kind_and_read(TokenKind.Newline)
                 else:
                     assert_lookahead_kind_and_read(TokenKind.Newline)
-            else:
-                assert_lookahead_kind_and_read(TokenKind.Newline)
-        return block_ctx(stat_star=tuple(stat_star))
+            return tuple(stat_list)
+
+        return block_ctx(stat_star=stat_star())
 
     def stat():
         assert_lookahead_kind(TokenKind.Sep_Pound)
@@ -796,10 +844,16 @@ def parse(chunk):
 
     def string_exp():
         # [x] 我的string是一起的，要处理一下L字符串
-        return string_exp_ctx(is_long_str=False, value=next_token().value)
+        string_builder = []
+        while test_lookahead_kind_in((TokenKind.String, TokenKind.WideString)):
+            string_builder.append(next_token().value)
+        return string_exp_ctx(is_long_str=False, value=''.join(string_builder))
 
     def wide_string_exp():
-        return string_exp_ctx(is_long_str=True, value=next_token().value)
+        string_builder = []
+        while test_lookahead_kind_in((TokenKind.String, TokenKind.WideString)):
+            string_builder.append(next_token().value)
+        return string_exp_ctx(is_long_str=True, value=''.join(string_builder))
 
     def aggregate_exp():
         next_token()
@@ -816,6 +870,7 @@ def parse(chunk):
         token_string_star.append(i)
         while True:
             if test_lookahead_kind_sequence([TokenKind.Sep_Comma, TokenKind.Sep_RCurly]):
+                next_token()  # read comma
                 break
             elif test_lookahead_kind(TokenKind.Sep_RCurly):
                 break
@@ -863,7 +918,47 @@ def parse(chunk):
         assert_lookahead_kind_and_read(TokenKind.Kw_IfNDef)
         return ifndef_ctx(identifier=next_identifier())
 
-    return block(), assert_lookahead_kind_and_read(TokenKind.Eof)
+    def parse_chunk():  # NOTE chunk与参数名字冲突了
+        def output_err():
+            assert parse_error_list
+            for i, err in enumerate(parse_error_list):
+                print>> sys.stderr, '-' * 10
+                print>> sys.stderr, '| ID: %s | Chunk: %s | Type: %s |' % \
+                                    (i, chunkname,
+                                     str(type(err)).replace("<class 'PyMacroParser.", '').replace("'>", ''))
+                print>> sys.stderr, err.__str__()
+                print>> sys.stderr, '-' * 10
+            raise ParserException('dumb syntax error, fix all syntax error to eliminate this error')
+
+        if not OPTION_RECOVER_FROM_ERROR:
+            block_ = block()
+            eof_ = assert_lookahead_kind_and_read(TokenKind.Eof)  # [x]  assert_lookahead_kind_and_read(TokenKind.Eof)
+            return block_, eof_
+
+        # 这里有点丑，是这样的
+        #   一条路是，我们遇到了错误，从except中恢复并继续parse
+        #   然后就是你可能一直错到最后一行，也可能最后一行是正确的
+        #   但是有错parser最后肯定要抛出异常
+        block_ = None
+        eof_ = None
+        try:
+            block_ = block()
+            eof_ = assert_lookahead_kind_and_read(TokenKind.Eof)  # [x]  assert_lookahead_kind_and_read(TokenKind.Eof)
+        except Exception as e:
+            parse_error_list.append(e)
+            if token_steam.flush_to_next_line():
+                # file parsed completely, we output all error
+                output_err()
+            else:
+                parse_chunk()
+        if parse_error_list:
+            output_err()
+        return block_, eof_
+
+    parse_error_list = []
+    token_steam = TokenStream(Lexer(chunk, chunkname))
+    chunkname = chunkname or chunk
+    return parse_chunk()
 
 
 # endregion
@@ -872,12 +967,6 @@ def parse(chunk):
 class Prototype:
     def __init__(self, ast):
         self.ast = ast
-
-
-# 时间紧张，不编译
-# def compile(chunk: str, chunkname='') -> Prototype:
-#     # TODO catch error and rethrow with chunk name
-#     pass
 
 
 # endregion
@@ -889,9 +978,6 @@ class RuntimeException(Exception):
 
 
 # 时间紧张。。直接执行ast
-#
-# visit*函数，语句没有返回值，表达式有返回值
-# C#会很烦写一个tag-union，但是python就很轻松
 def execute(proto, predefined_names=None):
     defined_variables = {}
     if predefined_names:
@@ -915,15 +1001,15 @@ def execute(proto, predefined_names=None):
         visit(ctx)
 
     def visit_define_stat_ctx(ctx):
-        name = ctx.identifier
+        id_ = ctx.identifier
         token_string_optional = ctx.token_string_optional
-        defined_variables[name] = visit(token_string_optional) if token_string_optional else None
+        defined_variables[id_] = visit(token_string_optional) if token_string_optional else None
 
     def visit_undef_stat_ctx(ctx):
-        name = ctx.identifier
+        id_ = ctx.identifier
         # [Different ways to Remove a key from Dictionary in Python | del vs dict.pop() – thispointer.com](
         # https://thispointer.com/different-ways-to-remove-a-key-from-dictionary-in-python/)
-        defined_variables.pop(name, None)
+        defined_variables.pop(id_, None)
 
     def visit_bool_exp_ctx(ctx):
         return ctx.value
@@ -987,165 +1073,19 @@ def dump(defined_variables):
             return o.__str__()
         elif isinstance(o, str):
             return '"%s"' % o
-        # TODO
-        # elif IS_PYTHON2 and isinstance(o, unicode):
-        #     return 'L"%s' % o
+        # [x] 宽字符串
+        elif isinstance(o, unicode):
+            return 'L"%s' % o
         else:
             assert isinstance(o, tuple)
             return "{%s}" % ', '.join(py2cpp(i) for i in o)
 
     def define(name, value=None):
-        return '#define %s %s\n' % (
+        return '#define %s %s' % (
             name, py2cpp(value) if value is not None else '')
 
-    return ''.join(
+    return '\n'.join(
         define(name, value)
         for name, value in defined_variables.items())
 
-
-# endregion
-
-# region test
-
-test_id = 0
-
-
-def test_log():
-    global test_id
-    print('---- start test %s' % test_id)
-    test_id += 1
-
-
-test_skip = 'test_data/lexer/skip.cpp'
-test_define = 'test_data/define.cpp'
-test_a = 'test_data/a.cpp'
-
-
-# region test lexer
-def tl(s):
-    test_log()
-    lexer = Lexer(s)
-    token_steam = TokenStream(lexer)
-    while token_steam.not_eos:
-        t = token_steam.next_token
-        print(t)
-        if t.kind == TokenKind.Eof:
-            break
-
-
-def tlf(f):
-    tl(readall(f))
-
-
-print('==== test lexer start')
-tlf(test_skip)
-tlf(test_define)
-print('==== test lexer end')
-
-
-# endregion
-
-# region test parser
-
-def tp(s):
-    test_log()
-    pprint(parse(s), width=1)
-
-
-def tpf(f):
-    tp(readall(f))
-
-
-print('==== test parsr start')
-tpf(test_a)
-
-tp('')
-tp('#undef a')
-tp('#define a')
-tp('#define a 1')
-tpf(test_skip)
-tpf(test_define)
-print('test a')
-tpf(test_a)
-print('==== test parser end')
-
-
-# endregion
-
-# region test vm
-
-def tvf(f):
-    test_log()
-    proto = Prototype(parse(readall(f)))
-    pprint(execute(proto))
-
-
-tvf(test_a)
-
-# endregion
-
-# region final test
-
-
-test_a1 = PyMacroParser()
-test_a2 = PyMacroParser()
-test_a1.load("test_data/a.cpp")
-filename = "test_data/b.cpp"
-test_a1.dump(filename)  # 没有预定义宏的情况下，dump cpp
-test_a2.load(filename)
-a2_dict = test_a2.dumpDict()
-test_a1.preDefine("MC1;MC2")  # 指定预定义宏，再dump
-a1_dict = test_a1.dumpDict()
-test_a1.dump("test_data/c.cpp")
-
-# 则b.cpp输出
-test_b = '''
-#define data1 1.0 //浮点精度信息消失，统一转成了double 正式输出没有这个注释
-#define data2 2
-#define data3 false
-#define data4 "this is a data"
-#define data5 68 //注意：这里本是'D' 转换后成为整型十进制表示，正式输出没有这个注释
-#define data6 {1, 6}
-#define MCTEST //空宏，但是被定义了, 正式输出没有这个注释
-'''
-
-# a2.dump字典
-d2 = {
-    "data1": 1.0,
-    "data2": 2,
-    "data3": False,
-    "data4": "this is a data",
-    "data5": 68,
-    "data6": (1, 6),
-    "MCTEST": None,  # 空宏，但被定义了。 正式输出没有这个注释
-}
-
-# a1.dump字典：
-d1 = {
-    "data1": 32,
-    "data2": 2.5,  # 2.5f的float标记消失，正式输出没有这个注释
-    "data3": u"this is a data",  # 宽字符串成为 unicode 正式输出没有这个注释
-    "data4": True,
-    "data5": 97,  # 注意 这里是'a'转int。 正式输出没有这个注释
-    "data6": ((2.0, "abc"), (1.5, "def"), (5.6, "7.2")),  # python数据对象与源数据类型按规则对应即可， 正式输出没有这个注释
-    "MC1": None,  # 预定义的空宏，而MC2最终被undef了，所以不存在MC2
-    "MCTEST": None,
-}
-
-# c.cpp 输出
-test_c = '''
-#define data1 32 //16进制表示消失。 正式输出没有这个注释
-#define data2 2.5
-#define data3 L"this is a data" //unicode 转回宽字符 正式输出没有这个注释
-#define data4 true
-#define data5 97 //'a', 正式输出没有这个注释
-#define data6 {{2.0, "abc"}, {1.5, "def"}, {5.6, "7.2"}} #tuple转回聚合， 正式输出没有这个注释
-#define MC1
-#define MCTEST
-'''
-
-assert a1_dict == d1
-assert a2_dict == d2
-
-# endregion
 # endregion
