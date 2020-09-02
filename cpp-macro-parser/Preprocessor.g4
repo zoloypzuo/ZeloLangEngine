@@ -77,9 +77,11 @@ Whitespace : [ \t]+ -> skip;
 
 Newline: ( '\r\n' | '\n'); // 保留空白符
 
-// 转为空格不知道antlr怎么写
+// [x] 转为空格不知道antlr怎么写
+// 单行注释是两个/开头，然后这行的内容被忽略，直到遇到换行符
 LineComment: '//' ~[\r\n]* -> skip;  // to ' '
 
+// 多行注释是/**/中内容被忽略，注意多行注释不能嵌套，这个是非贪婪的，遇到第一个*/时解释
 BlockComment: '/*' .*? '*/' -> skip;  // to ' '
 
 Bool : 'true' | 'false';
