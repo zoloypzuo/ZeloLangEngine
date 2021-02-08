@@ -3,6 +3,10 @@
 一个极简的语法制导解析器框架
 以及相关的语言应用
 
+# 特点
+
+* 简单，100行代码实现，可以自己调试和修改
+
 # 用途
 
 * 编写简单的语言工具
@@ -47,6 +51,19 @@ lua-manual-generate-csharp-api-and-xml-doc | 从lua官方文档生成C#接口
 
 语法简单，测试用例完备
 
+大概像下面这样用，直接就可以解析json了
+
+```python
+parse_literal, parse_number, parse_string, value, parse_array, pair, parse_obj = [0,0,0,0,0,0,0]
+grammar = {
+    'null|true|false': parse_literal,
+    '-?[0-9]+(\.[0-9]+)?': parse_number,
+    '\"(\\.|.)*\"': parse_string,
+    (r'\[((%s\,)*%s)\]' % (value, value)): parse_array,
+    (r'\{((%s,)*%s)\}' % (pair, pair)): parse_obj
+}
+```
+
 ## 正则表达式
 
 这个可以说是比较硬核的，非常“编译原理”，用ZeloLangEngine开发的最复杂的语言应用了
@@ -56,3 +73,36 @@ lua-manual-generate-csharp-api-and-xml-doc | 从lua官方文档生成C#接口
 正则的语法要复杂得多，还有坑，不过最简单的语法仍然很简单
 
 如果支持标准的正则库的各种功能，比如捕获，这套框架肯定是不行了
+
+正则表达式语法如下，喂给`ParserGenerator`即可解析出ast，然后用虚拟机执行
+
+```python
+regex_grammar = r'''
+re : simple_re re_;
+re_ : union re_ | Epsilon;
+union : '|' simple_re;
+simple_re : basic_re simple_re_;
+simple_re_ : concat simple_re_ | Epsilon;
+concat : basic_re;
+basic_re :  star | plus | question | elementary_re;
+star : elementary_re '*';
+plus : elementary_re '+';
+question : elementary_re '?';
+elementary_re : group | any | eos | char | set;
+group : '(' re ')';
+any : '.';
+eos : '$';
+char : NonMetaChar | '\' MetaChar;
+set : positive_set | negative_set;
+positive_set : '[' set_items ']';
+negative_set : '[^' set_items ']';
+// set_items : set_item set_items | set_item;  使用下面这个debug方便
+set_items : NonMetaChar set_items | NonMetaChar;
+set_item : char | range;
+range : char '-' char;
+NonMetaChar : [^|*.+$()\\\[\]^?];  // regex [^|*.+$()\\[\]^]
+MetaChar : [|*.+$()\\\[\]^?];  // '-' ???
+Epsilon : '';
+'''
+
+```
